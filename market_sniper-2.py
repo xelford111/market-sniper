@@ -86,3 +86,13 @@ if __name__ == "__main__":
     while True:
         check_market()
         time.sleep(CHECK_INTERVAL)
+# === TEST ALERT ===
+send_telegram_alert(
+    "🔥 #TESTCOIN/USDT (Long📈, x20) 🔥\n"
+    "Entry - 0.1234\n"
+    "Take-Profit:\n"
+    "🥉 TP1 (40%) - 0.1250\n"
+    "🥈 TP2 (60%) - 0.1270\n"
+    "🥇 TP3 (80%) - 0.1300\n"
+    "🚀 TP4 (100%) - 0.1350"
+)
