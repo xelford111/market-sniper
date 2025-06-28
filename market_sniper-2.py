@@ -1,66 +1,85 @@
 import requests
-import pandas as pd
 import time
-import logging
-from datetime import datetime
 from telegram import Bot
 
-# === CONFIG ===
-BOT_TOKEN = 'YOUR_BOT_TOKEN_HERE'
-CHANNEL_USERNAME = '@chatxbot6363'  # Use @channelusername (not invite link)
-SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'XRPUSDT', 'SOLUSDT', 'DOGEUSDT']  # Add more if needed
-INTERVAL = '1m'
-LIMIT = 50
-DELAY = 30  # seconds
-BASE_URL = 'https://api.binance.com/api/v3/klines'
-
+# --- CONFIGURATION ---
+BOT_TOKEN = "6441443037:AAGZrcM0P7PXw7ox5nEkHvvRD5p1kXYSwJc"
+CHANNEL_ID = "@chatxbot6363"
 bot = Bot(token=BOT_TOKEN)
 
-# === UTILS ===
-def fetch_klines(symbol):
-    url = f"{BASE_URL}?symbol={symbol}&interval={INTERVAL}&limit={LIMIT}"
-    r = requests.get(url)
-    if r.status_code != 200:
-        logging.warning(f"Could not fetch {symbol} - {r.status_code}")
-        return None
-    df = pd.DataFrame(r.json(), columns=[
-        'time', 'open', 'high', 'low', 'close', 'volume', 
-        '_', '_', '_', '_', '_', '_'
-    ])
-    df['close'] = df['close'].astype(float)
-    df['volume'] = df['volume'].astype(float)
-    return df
+TICKER_URL = "https://api.bybit.com/v5/market/tickers?category=linear"
+DEPTH_URL = "https://api.bybit.com/v5/market/orderbook?category=linear&symbol={symbol}"
+CHECK_INTERVAL = 60
+PUMP_THRESHOLD = 2.0
+DUMP_THRESHOLD = -2.0
+DEPTH_LEVEL = 25
+IMBALANCE_THRESHOLD = 1.5  # Ratio of buy/sell volume to trigger alert
 
-def detect_spike(df):
-    if df is None or len(df) < 3:
-        return False, None
-    v_now = df['volume'].iloc[-1]
-    v_avg = df['volume'].iloc[:-1].mean()
-    pct_diff = (v_now - v_avg) / v_avg * 100
-    return pct_diff > 250, round(pct_diff, 1)
+last_prices = {}
 
-def send_signal(symbol, pct, direction):
-    emoji = '📈' if direction == 'long' else '📉'
-    entry = df['close'].iloc[-1]
-    t = f"""
-🔥 #{symbol}/USDT ({direction.capitalize()}{emoji}, x20) 🔥
-Entry - {entry}
-Take-Profit:
-🥉 TP1 (40%)
-🥈 TP2 (60%)
-🥇 TP3 (80%)
-🚀 TP4 (100%)
-Spike: {pct}%
-"""
-    bot.send_message(chat_id=CHANNEL_USERNAME, text=t)
+def get_depth(symbol):
+    try:
+        r = requests.get(DEPTH_URL.format(symbol=symbol), timeout=5)
+        data = r.json()
+        asks = data["result"]["asks"][:DEPTH_LEVEL]
+        bids = data["result"]["bids"][:DEPTH_LEVEL]
+        total_ask = sum(float(x[1]) for x in asks)
+        total_bid = sum(float(x[1]) for x in bids)
+        return total_bid, total_ask
+    except:
+        return None, None
 
-# === MAIN LOOP ===
-print("Bot running...")
-while True:
-    for symbol in SYMBOLS:
-        df = fetch_klines(symbol)
-        spike, pct = detect_spike(df)
-        if spike:
-            direction = 'long' if df['close'].iloc[-1] > df['close'].iloc[-2] else 'short'
-            send_signal(symbol, pct, direction)
-    time.sleep(DELAY)
+def send_alert(symbol, price, move_type, bid=None, ask=None):
+    emoji = "📈" if move_type == "pump" else "📉"
+    fire = "🔥"
+    liquidity_msg = ""
+    if bid and ask:
+        ratio = bid / ask if ask != 0 else 0
+        if ratio > IMBALANCE_THRESHOLD:
+            liquidity_msg = f"🟢 Buy Wall Detected (B/A ratio: {ratio:.1f})"
+        elif ratio < 1 / IMBALANCE_THRESHOLD:
+            liquidity_msg = f"🔴 Sell Wall Detected (B/A ratio: {ratio:.1f})"
+
+    message = (
+        f"{fire} #{symbol}/USDT ({'Long📈' if move_type == 'pump' else 'Short📉'}, x20) {fire}\n"
+        f"Entry - {price}\n"
+        "Take-Profit:\n"
+        "🥉 TP1 (40%)\n"
+        "🥈 TP2 (60%)\n"
+        "🥇 TP3 (80%)\n"
+        "🚀 TP4 (100%)\n"
+        f"{liquidity_msg}"
+    )
+    bot.send_message(chat_id=CHANNEL_ID, text=message)
+
+def check_market():
+    try:
+        response = requests.get(TICKER_URL, timeout=10)
+        data = response.json()
+
+        for item in data["result"]["list"]:
+            symbol = item["symbol"]
+            if not symbol.endswith("USDT"):
+                continue
+
+            last_price = float(item["lastPrice"])
+            prev_price = last_prices.get(symbol)
+
+            if prev_price:
+                price_change = ((last_price - prev_price) / prev_price) * 100
+                if abs(price_change) >= PUMP_THRESHOLD:
+                    bid, ask = get_depth(symbol)
+                    move = "pump" if price_change > 0 else "dump"
+                    send_alert(symbol, last_price, move, bid, ask)
+
+            last_prices[symbol] = last_price
+
+    except Exception as e:
+        print(f"[ERROR] {e}")
+
+# --- MAIN LOOP ---
+if __name__ == "__main__":
+    print("🧠 Enhanced Sniper Bot w/ Liquidity Running...")
+    while True:
+        check_market()
+        time.sleep(CHECK_INTERVAL)
