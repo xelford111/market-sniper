@@ -1,87 +1,84 @@
-
 import asyncio
 import aiohttp
 import time
 from datetime import datetime
+import logging
 from telegram import Bot
 
-# === CONFIGURATION ===
-TELEGRAM_BOT_TOKEN = "7939062269:AAFwdMlsADkSe-6sMB0EqPfhQmw0Fn4DRus"
-TELEGRAM_CHAT_ID = "7186880587"
-INTERVAL = 300  # 5 minutes
-SYMBOLS_ENDPOINT = "https://api.bybit.com/v5/market/tickers?category=linear"
-
-# ✅ Public Indonesian Proxy (non-US)
-PROXIES = {
-    "http": "http://103.168.251.17:8080",
-    "https": "http://103.168.251.17:8080"
-}
+TELEGRAM_BOT_TOKEN = '7939062269:AAFwdMlsADkSe-6sMB0EqPfhQmw0Fn4DRus'
+TELEGRAM_CHAT_ID = '-1002674839519'  # Channel ID
 
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
-async def send_telegram_alert(message):
+BYBIT_URL = 'https://api.bybit.com/v5/market/tickers?category=linear'
+HEADERS = {'User-Agent': 'Mozilla/5.0'}
+
+async def send_telegram_alert(message: str):
     try:
         await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
     except Exception as e:
-        print(f"❌ Telegram Error: {e}")
+        print(f"Error sending alert: {e}")
 
-def format_alert(symbol, direction, price):
-    return f"""🔥 #{symbol} ({"Long📈" if direction == "long" else "Short📉"}, x20) 🔥
-Entry - {price}
-Take-Profit:
-🥉 TP1 (40% of profit)
-🥈 TP2 (60% of profit)
-🥇 TP3 (80% of profit)
-🚀 TP4 (100% of profit)
-"""
-
-def detect_signals(data):
-    alerts = []
-    for item in data.get("result", {}).get("list", []):
-        symbol = item["symbol"]
-        if not symbol.endswith("USDT"):
-            continue
-        try:
-            last_price = float(item["lastPrice"])
-            volume_24h = float(item["turnover24h"])
-            percent_change = float(item["price24hPcnt"]) * 100
-        except:
-            continue
-
-        if volume_24h > 5000000 and abs(percent_change) > 5:
-            direction = "long" if percent_change > 0 else "short"
-            alerts.append(format_alert(symbol, direction, last_price))
-    return alerts
-
-async def fetch_symbols():
+async def fetch_bybit_data():
     try:
-        conn = aiohttp.TCPConnector(ssl=False)
-        async with aiohttp.ClientSession(connector=conn) as session:
-            proxy_url = PROXIES.get("http")
-            async with session.get(SYMBOLS_ENDPOINT, proxy=proxy_url, timeout=10) as resp:
+        async with aiohttp.ClientSession(headers=HEADERS) as session:
+            async with session.get(BYBIT_URL) as resp:
                 if resp.status != 200:
-                    print(f"❌ HTTP error: {resp.status}")
-                    return None
-                return await resp.json()
+                    raise Exception(f"Bad response: {resp.status}")
+                data = await resp.json()
+                return data.get("result", {}).get("list", [])
     except Exception as e:
-        print(f"❌ Fetch Error: {e}")
-        return None
+        print(f"Error fetching data: {e}")
+        return []
 
-async def run_sniper():
-    await send_telegram_alert("✅ [TEST ALERT] Market Sniper Bot is live (using proxy)")
-    print("🟢 Sniper running...")
+def detect_signal(ticker_data):
+    signals = []
+    for ticker in ticker_data:
+        symbol = ticker['symbol']
+        if not symbol.endswith('USDT'):
+            continue
+        vol = float(ticker.get('turnover24h', 0))
+        last_price = float(ticker.get('lastPrice', 0))
+        price_change = float(ticker.get('price24hPcnt', 0))
+
+        if vol > 5_000_000 and abs(price_change) > 0.08:
+            direction = 'Long📈' if price_change > 0 else 'Short📉'
+            leverage = 'x20'
+            tp_base = last_price * (1.01 if price_change > 0 else 0.99)
+
+            tps = [tp_base * (1 + i * 0.01) if price_change > 0 else tp_base * (1 - i * 0.01) for i in range(4)]
+
+            msg = (
+                f"🔥 #{symbol}/USDT ({direction}, {leverage}) 🔥
+"
+                f"Entry - {last_price:.4f}
+"
+                f"Take-Profit:
+"
+                f"🥉 TP1 ({tps[0]:.4f})
+"
+                f"🥈 TP2 ({tps[1]:.4f})
+"
+                f"🥇 TP3 ({tps[2]:.4f})
+"
+                f"🚀 TP4 ({tps[3]:.4f})"
+            )
+            signals.append(msg)
+    return signals
+
+async def sniper_bot():
+    await send_telegram_alert("🟢 [TEST ALERT] Market Sniper Bot is now live!")
     while True:
-        data = await fetch_symbols()
-        if data:
-            alerts = detect_signals(data)
-            for alert in alerts:
-                await send_telegram_alert(alert)
-                print(f"✅ Sent: {alert}")
-        await asyncio.sleep(INTERVAL)
+        data = await fetch_bybit_data()
+        signals = detect_signal(data)
+        for sig in signals:
+            await send_telegram_alert(sig)
+        await asyncio.sleep(300)  # 5-minute interval
 
 if __name__ == "__main__":
-    asyncio.run(run_sniper())
-
-
+    try:
+        asyncio.run(sniper_bot())
+    except Exception as e:
+        print(f"Bot error: {e}")
 
 
