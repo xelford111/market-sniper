@@ -1,54 +1,49 @@
 
-import requests
-import time
-from telegram import Bot, request
+import asyncio
+import aiohttp
+from telegram import Bot
+from datetime import datetime
+import logging
+import os
 
-# === CONFIGURATION ===
+# === CONFIG ===
 BOT_TOKEN = "7939062269:AAFwdMlsADkSe-6sMB0EqPfhQmw0Fn4DRus"
-CHANNEL_ID = "-1002674839519"  # Your Telegram channel
-PROXY_URL = "http://proxy.scrapeops.io:8001"  # Free working proxy for test use
+CHANNEL_ID = "-1002674839519"
+PROXY_URL = "http://149.129.213.66:3128"
+BYBIT_TICKER_URL = "https://api.bybit.com/v5/market/tickers?category=linear"
 
-# === BOT SETUP WITH PROXY ===
-req = request.Request(proxy_url=PROXY_URL)
-bot = Bot(token=BOT_TOKEN, request=req)
+# === INIT BOT WITH PROXY ===
+bot = Bot(token=BOT_TOKEN, request=aiohttp.request("GET", proxy=PROXY_URL))
 
-def send_alert(symbol, direction, leverage, entry_price):
-    message = f"""🔥 #{symbol}/USDT ({direction}, x{leverage}) 🔥
-Entry - {entry_price}
-Take-Profit:
-🥉 TP1 (40% of profit)
-🥈 TP2 (60% of profit)
-🥇 TP3 (80% of profit)
-🚀 TP4 (100% of profit)"""
-    bot.send_message(chat_id=CHANNEL_ID, text=message)
-
-def get_bybit_data():
-    url = "https://api.bybit.com/v5/market/tickers?category=linear"
+async def fetch_bybit_data():
     try:
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        return data["result"]["list"]
+        async with aiohttp.ClientSession() as session:
+            async with session.get(BYBIT_TICKER_URL, proxy=PROXY_URL) as response:
+                data = await response.json()
+                return data.get("result", {}).get("list", [])
     except Exception as e:
-        print("❌ Bybit fetch failed:", e)
+        logging.error(f"[ERROR] Failed to fetch from Bybit: {e}")
         return []
 
-def detect_signals(data):
-    for item in data:
-        symbol = item["symbol"]
-        last_price = float(item["lastPrice"])
-        vol = float(item["turnover24h"])
-        pct_change = float(item["price24hPcnt"]) * 100
+async def scan_market():
+    await bot.send_message(chat_id=CHANNEL_ID, text="🚀 [TEST ALERT] Market Sniper Bot is live!")
+    while True:
+        coins = await fetch_bybit_data()
+        for coin in coins:
+            symbol = coin["symbol"]
+            last_price = float(coin["lastPrice"])
+            prev_price = float(coin.get("prevPrice24h", 0)) or last_price
+            pct_change = ((last_price - prev_price) / prev_price) * 100 if prev_price != 0 else 0
+            volume_usd = float(coin["turnover24h"])
 
-        if vol > 1_000_000 and abs(pct_change) > 4:
-            direction = "Long📈" if pct_change > 0 else "Short📉"
-            send_alert(symbol, direction, 20, last_price)
+            if abs(pct_change) >= 5 and volume_usd > 1000000:
+                direction = "Long📈" if pct_change > 0 else "Short📉"
+                leverage = "x20"
+                msg = f"🔥 {symbol}/USDT ({direction}, {leverage}) 🔥\nEntry - {last_price}\nTake-Profit:\n🥉 TP1\n🥈 TP2\n🥇 TP3\n🚀 TP4"
+                await bot.send_message(chat_id=CHANNEL_ID, text=msg)
 
-# === STARTUP MESSAGE ===
-print("✅ Market Sniper Bot (with Proxy) running...")
-bot.send_message(chat_id=CHANNEL_ID, text="🚨 [TEST] Market Sniper Bot is live with proxy!")
+        await asyncio.sleep(60)
 
-# === LOOP ===
-while True:
-    tickers = get_bybit_data()
-    detect_signals(tickers)
-    time.sleep(60)
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    asyncio.run(scan_market())
