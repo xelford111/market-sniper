@@ -7,15 +7,14 @@ BOT_TOKEN = "6441443037:AAGZrcM0P7PXw7ox5nEkHvvRD5p1kXYSwJc"
 CHANNEL_ID = "@chatxbot6363"
 bot = Bot(token=BOT_TOKEN)
 
-TICKER_URL = "https://api.bybit.com/v5/market/tickers?category=linear"
+SYMBOLS_URL = "https://api.bybit.com/v5/market/tickers?category=linear"
+KLINE_URL = "https://api.bybit.com/v5/market/kline?category=linear&symbol={symbol}&interval=5&limit=2"
 DEPTH_URL = "https://api.bybit.com/v5/market/orderbook?category=linear&symbol={symbol}"
-CHECK_INTERVAL = 60
-PUMP_THRESHOLD = 2.0
-DUMP_THRESHOLD = -2.0
+CHECK_INTERVAL = 300  # 5 minutes
+PUMP_THRESHOLD = 1.5  # % move per 5 min candle
+DUMP_THRESHOLD = -1.5
 DEPTH_LEVEL = 25
-IMBALANCE_THRESHOLD = 1.5  # Ratio of buy/sell volume to trigger alert
-
-last_prices = {}
+IMBALANCE_THRESHOLD = 1.5
 
 def get_depth(symbol):
     try:
@@ -54,7 +53,7 @@ def send_alert(symbol, price, move_type, bid=None, ask=None):
 
 def check_market():
     try:
-        response = requests.get(TICKER_URL, timeout=10)
+        response = requests.get(SYMBOLS_URL, timeout=10)
         data = response.json()
 
         for item in data["result"]["list"]:
@@ -62,24 +61,28 @@ def check_market():
             if not symbol.endswith("USDT"):
                 continue
 
-            last_price = float(item["lastPrice"])
-            prev_price = last_prices.get(symbol)
+            kline_resp = requests.get(KLINE_URL.format(symbol=symbol), timeout=5)
+            kline_data = kline_resp.json()
+            if "result" not in kline_data or not kline_data["result"]["list"]:
+                continue
 
-            if prev_price:
-                price_change = ((last_price - prev_price) / prev_price) * 100
-                if abs(price_change) >= PUMP_THRESHOLD:
-                    bid, ask = get_depth(symbol)
-                    move = "pump" if price_change > 0 else "dump"
-                    send_alert(symbol, last_price, move, bid, ask)
+            klines = kline_data["result"]["list"]
+            prev_close = float(klines[-2][4])
+            curr_close = float(klines[-1][4])
 
-            last_prices[symbol] = last_price
+            change = ((curr_close - prev_close) / prev_close) * 100
+
+            if abs(change) >= PUMP_THRESHOLD:
+                bid, ask = get_depth(symbol)
+                move = "pump" if change > 0 else "dump"
+                send_alert(symbol, curr_close, move, bid, ask)
 
     except Exception as e:
         print(f"[ERROR] {e}")
 
 # --- MAIN LOOP ---
 if __name__ == "__main__":
-    print("🧠 Enhanced Sniper Bot w/ Liquidity Running...")
+    print("🔁 5-Minute Sniper Bot Running...")
     while True:
         check_market()
         time.sleep(CHECK_INTERVAL)
