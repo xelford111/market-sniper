@@ -1,54 +1,41 @@
 
-import requests
-import time
+import asyncio
+import logging
+import httpx
 from telegram import Bot
-from telegram.utils.request import Request
+from telegram.constants import ParseMode
+from telegram.error import TelegramError
+import os
 
-# === Configuration ===
+# ========================
+# CONFIGURATION
+# ========================
 BOT_TOKEN = "7939062269:AAFwdMlsADkSe-6sMB0EqPfhQmw0Fn4DRus"
-CHANNEL_ID = "-1002674839519"
-PROXY_URL = "http://149.129.213.66:3128"  # Working free proxy
-BYBIT_URL = "https://api.bybit.com/v5/market/tickers?category=linear"
+CHANNEL_ID = "-1002674839519"  # Your Telegram channel ID (Chatxbot)
+PROXY_URL = "http://proxy.scrapeops.io:5353"
+PROXY_HEADERS = {
+    "Proxy-Authorization": "Basic c2NyYXBlb3BzOmJmOWMzZTRhZTg0NzQ4NmRhYzVmYjcwN2FlMTIzN2M2"
+}
 
-# === Telegram Bot Setup with Proxy ===
-request = Request(proxy_url=PROXY_URL)
-bot = Bot(token=BOT_TOKEN, request=request)
-
-# === Send formatted signal to Telegram ===
-def send_signal(symbol, direction, price):
-    message = f"""🔥 #{symbol}/USDT ({direction}, x20) 🔥
-Entry - {price}
-Take-Profit:
-🥉 TP1 (40% of profit)
-🥈 TP2 (60% of profit)
-🥇 TP3 (80% of profit)
-🚀 TP4 (100% of profit)"""
-    bot.send_message(chat_id=CHANNEL_ID, text=message)
-
-# === Fetch and filter Bybit market data ===
-def get_signals():
+# ========================
+# TEST MESSAGE FUNCTION
+# ========================
+async def send_test_message():
     try:
-        res = requests.get(BYBIT_URL, timeout=10)
-        data = res.json()["result"]["list"]
-        for item in data:
-            symbol = item["symbol"]
-            last_price = float(item["lastPrice"])
-            pct = float(item["price24hPcnt"]) * 100
-            vol = float(item["turnover24h"])
-
-            if vol > 1_000_000 and abs(pct) > 4:
-                direction = "Long📈" if pct > 0 else "Short📉"
-                send_signal(symbol, direction, last_price)
-
+        async with httpx.AsyncClient(proxies=PROXY_URL, headers=PROXY_HEADERS, timeout=10) as client:
+            bot = Bot(token=BOT_TOKEN, request=client)
+            await bot.send_message(
+                chat_id=CHANNEL_ID,
+                text="✅ [TEST ALERT] Market Sniper Bot is now live using proxy!",
+                parse_mode=ParseMode.HTML
+            )
+    except TelegramError as e:
+        print(f"TelegramError: {e}")
     except Exception as e:
-        print("[ERROR]", e)
+        print(f"Unexpected error: {e}")
 
-# === Test alert on start ===
-bot.send_message(chat_id=CHANNEL_ID, text="🚨 [TEST] Sniper bot is now running with proxy!")
-
-# === Continuous Monitoring ===
-print("✅ Sniper bot running...")
-while True:
-    get_signals()
-    time.sleep(60)
-
+# ========================
+# MAIN
+# ========================
+if __name__ == "__main__":
+    asyncio.run(send_test_message())
