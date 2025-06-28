@@ -1,3 +1,4 @@
+
 import time
 import requests
 import asyncio
@@ -50,11 +51,11 @@ def get_depth(symbol):
         return 0, 0
 
 def send_alert(symbol, price, direction, bid, ask):
-    emoji = "📈" if direction == "pump" else "📉"
+    emoji = "\U0001F4C8" if direction == "pump" else "\U0001F4C9"
     base = symbol.replace("USDT", "")
     leverage = "x20"
     message = (
-        f"🔥 #{base}/USDT ({'Long📈' if direction=='pump' else 'Short📉'}, {leverage}) 🔥\n"
+        f"\U0001F525 #{base}/USDT ({'Long\U0001F4C8' if direction=='pump' else 'Short\U0001F4C9'}, {leverage}) \U0001F525\n"
         f"Entry - {price:.4f}\n"
         f"Take-Profit:\n"
         f"🥉 TP1 (40%) = {price * (1.015 if direction=='pump' else 0.985):.4f}\n"
@@ -91,7 +92,7 @@ if __name__ == "__main__":
     # === TEST ALERT ON STARTUP ===
     try:
         test_message = (
-            "🔥 #TESTCOIN/USDT (Long📈, x20) 🔥\n"
+            "\U0001F525 #TESTCOIN/USDT (Long\U0001F4C8, x20) \U0001F525\n"
             "Entry - 0.1234\n"
             "Take-Profit:\n"
             "🥉 TP1 (40%) = 0.1258\n"
@@ -107,6 +108,7 @@ if __name__ == "__main__":
     while True:
         check_market()
         time.sleep(CHECK_INTERVAL)
+
 
 
 
