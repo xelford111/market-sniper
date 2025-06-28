@@ -1,11 +1,11 @@
+
 import time
 import requests
 import json
-from pybit.unified_trading import HTTP
 
 # === CONFIG ===
 BOT_TOKEN = "8029194291:AAHJDbsInstarivWEMPBkxsHFfH4zFCvDt8"
-CHAT_ID = "@chatxbot6363"  # Channel username or private chat ID
+CHAT_ID = "7186880587"  # Sending directly to user's private chat ID
 CHECK_INTERVAL = 300  # 5-minute candles
 PUMP_THRESHOLD = 0.015  # 1.5% price move triggers signal
 
