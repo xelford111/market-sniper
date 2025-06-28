@@ -1,80 +1,74 @@
-import requests
 import time
-import pandas as pd
-from datetime import datetime, timedelta
+import requests
+import asyncio
 from pybit.unified_trading import HTTP
+from telegram import Bot
 
-# === CONFIG ===
-API_KEY = ""  # Optional, if using private endpoints later
-API_SECRET = ""  # Optional
-TELEGRAM_BOT_TOKEN = "your_telegram_bot_token_here"
-TELEGRAM_CHAT_ID = "your_telegram_chat_id_here"
-CHECK_INTERVAL = 300  # 5 minutes
-PUMP_THRESHOLD = 1.5  # percent change trigger
+# === CONFIGURATION ===
+BYBIT_API_URL = "https://api.bybit.com"
+CANDLE_INTERVAL = "5"  # 5-minute candles
+PUMP_THRESHOLD = 1.2  # % change threshold for alert
+CHECK_INTERVAL = 60  # seconds
 
-session = HTTP(
-    testnet=False,
-    api_key=API_KEY,
-    api_secret=API_SECRET
-)
+# === TELEGRAM CONFIG ===
+TELEGRAM_BOT_TOKEN = "6481536367:AAGH-Y1FB5xmvPPq2v-x0GprQFd5PoDiAto"
+TELEGRAM_CHAT_ID = "-1002227838593"
 
-def send_alert(symbol, price, move, bid, ask):
-    direction = "Long📈" if move == "pump" else "Short📉"
-    emoji = "🔥" if move == "pump" else "⚠️"
-    tp1 = round(price * (1.02 if move == "pump" else 0.98), 4)
-    tp2 = round(price * (1.04 if move == "pump" else 0.96), 4)
-    tp3 = round(price * (1.06 if move == "pump" else 0.94), 4)
-    tp4 = round(price * (1.08 if move == "pump" else 0.92), 4)
+bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
-    message = (
-        f"{emoji} <b>#{symbol}/USDT ({direction}, x20)</b> {emoji}\n"
-        f"<b>Entry</b> - {price}\n"
-        f"<b>Take-Profit:</b>\n"
-        f"🥉 TP1 (40%) = {tp1}\n"
-        f"🥈 TP2 (60%) = {tp2}\n"
-        f"🥇 TP3 (80%) = {tp3}\n"
-        f"🚀 TP4 (100%) = {tp4}"
-    )
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "HTML"
-    }
+def get_perpetual_symbols():
     try:
-        response = requests.post(url, data=payload)
-        print("✅ Sent alert:", symbol, move, "Price:", price)
+        url = f"{BYBIT_API_URL}/v5/market/instruments-info?category=linear"
+        res = requests.get(url).json()
+        return [s["symbol"] for s in res["result"]["list"] if s["symbol"].endswith("USDT")]
     except Exception as e:
-        print(f"[Telegram ERROR] {e}")
+        print(f"[SYMBOL ERROR] {e}")
+        return []
 
 def get_klines(symbol):
     try:
-        klines = session.get_kline(
-            category="linear",
-            symbol=symbol,
-            interval="5",
-            limit=2
-        )["result"]["list"]
-        return sorted(klines, key=lambda x: int(x[0]))
-    except:
+        url = f"{BYBIT_API_URL}/v5/market/kline"
+        params = {"symbol": symbol, "interval": CANDLE_INTERVAL, "limit": 2, "category": "linear"}
+        res = requests.get(url, params=params).json()
+        return res["result"]["list"]
+    except Exception as e:
+        print(f"[KLINE ERROR] {e}")
         return []
 
 def get_depth(symbol):
     try:
-        depth = session.get_orderbook(category="linear", symbol=symbol)
-        bids = float(depth['result']['b'][0][0])
-        asks = float(depth['result']['a'][0][0])
-        return bids, asks
-    except:
-        return 0.0, 0.0
+        url = f"{BYBIT_API_URL}/v5/market/orderbook"
+        params = {"symbol": symbol, "category": "linear"}
+        res = requests.get(url, params=params).json()
+        bids = res["result"]["b"]
+        asks = res["result"]["a"]
+        bid_total = sum(float(x[1]) for x in bids[:5])
+        ask_total = sum(float(x[1]) for x in asks[:5])
+        return bid_total, ask_total
+    except Exception as e:
+        print(f"[DEPTH ERROR] {e}")
+        return 0, 0
+
+def send_alert(symbol, price, direction, bid, ask):
+    emoji = "📈" if direction == "pump" else "📉"
+    base = symbol.replace("USDT", "")
+    leverage = "x20"
+    message = (
+        f"🔥 #{base}/USDT ({'Long📈' if direction=='pump' else 'Short📉'}, {leverage}) 🔥\n"
+        f"Entry - {price:.4f}\n"
+        f"Take-Profit:\n"
+        f"🥉 TP1 (40%) = {price * (1.015 if direction=='pump' else 0.985):.4f}\n"
+        f"🥈 TP2 (60%) = {price * (1.03 if direction=='pump' else 0.97):.4f}\n"
+        f"🥇 TP3 (80%) = {price * (1.045 if direction=='pump' else 0.955):.4f}\n"
+        f"🚀 TP4 (100%) = {price * (1.06 if direction=='pump' else 0.94):.4f}"
+    )
+    asyncio.run(bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message))
+    print(f"[ALERT SENT] {symbol} - {direction.upper()}")
 
 def check_market():
-    try:
-        symbols = session.get_tickers(category="linear")["result"]["list"]
-        for s in symbols:
-            symbol = s["symbol"]
-            if "USDT" not in symbol:
-                continue
+    symbols = get_perpetual_symbols()
+    for symbol in symbols:
+        try:
             klines = get_klines(symbol)
             if len(klines) < 2:
                 continue
@@ -84,33 +78,31 @@ def check_market():
 
             if abs(change) >= PUMP_THRESHOLD:
                 bid, ask = get_depth(symbol)
-                move = "pump" if change > 0 else "dump"
-                send_alert(symbol, curr_close, move, bid, ask)
+                direction = "pump" if change > 0 else "dump"
+                send_alert(symbol, curr_close, direction, bid, ask)
 
-    except Exception as e:
-        print("[ERROR]", e)
+        except Exception as e:
+            print(f"[MARKET ERROR] {symbol}: {e}")
 
+# === MAIN LOOP ===
 if __name__ == "__main__":
-    print("🤖 5-Minute Sniper Bot Running...")
+    print("🚀 Market Sniper Bot Running (5-minute candles)...")
 
-    # === TEST ALERT BLOCK ===
+    # === TEST ALERT ON STARTUP ===
     try:
         test_message = (
-            "🔥 <b>#TESTCOIN/USDT (Long📈, x20)</b> 🔥\n"
-            "<b>Entry</b> - 0.1234\n"
-            "<b>Take-Profit:</b>\n"
+            "🔥 #TESTCOIN/USDT (Long📈, x20) 🔥\n"
+            "Entry - 0.1234\n"
+            "Take-Profit:\n"
             "🥉 TP1 (40%) = 0.1258\n"
             "🥈 TP2 (60%) = 0.1270\n"
             "🥇 TP3 (80%) = 0.1300\n"
             "🚀 TP4 (100%) = 0.1350"
         )
-        requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-            data={"chat_id": TELEGRAM_CHAT_ID, "text": test_message, "parse_mode": "HTML"}
-        )
-        print("✅ [TEST ALERT] Sent successfully.")
+        asyncio.run(bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=test_message))
+        print("[TEST ALERT] Sent")
     except Exception as e:
-        print(f"❌ [TEST ALERT ERROR] {e}")
+        print(f"[TEST ALERT ERROR] {e}")
 
     while True:
         check_market()
