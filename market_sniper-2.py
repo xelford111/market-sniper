@@ -1,71 +1,87 @@
-
 import asyncio
 import httpx
 import time
-import pandas as pd
 from pybit.unified_trading import HTTP
 from telegram import Bot
 
-# === SETTINGS ===
+# === CONFIGURATION ===
 BOT_TOKEN = "7939062269:AAFwdMlsADkSe-6sMB0EqPfhQmw0Fn4DRus"
-CHANNEL_ID = "-1002674839519"
+CHANNEL_ID = "@rawcryptoalerts"
 LEVERAGE = "x20"
-PROXY = "http://scraperapi-country-us:5f5ac26a4dfbd5b42254f95f8cf7d309@proxy-server.scraperapi.com:8001"
+TRANSPORT = httpx.AsyncHTTPTransport(proxy="http://proxy.zyte.com:8011")
 
-# === TELEGRAM SETUP ===
-bot = Bot(token=BOT_TOKEN, request=httpx.AsyncClient(transport=httpx.AsyncHTTPTransport(proxy=PROXY)))
+client = HTTP()
+bot = Bot(token=BOT_TOKEN)
 
-# === BYBIT SETUP ===
-session = HTTP()
+def format_telegram_message(symbol, direction, entry, tps):
+    tp_text = "\n".join([
+        f"🥉 TP1 ({tps[0]}%)",
+        f"🥈 TP2 ({tps[1]}%)",
+        f"🥇 TP3 ({tps[2]}%)",
+        f"🚀 TP4 ({tps[3]}%)",
+    ])
+    return f"🔥 #{symbol}/USDT ({direction}, {LEVERAGE}) 🔥\nEntry - {entry}\nTake-Profit:\n{tp_text}"
 
-def get_usdt_contracts():
-    markets = session.get_symbols(category="linear")["result"]["list"]
-    return [m["symbol"] for m in markets if m["quoteCoin"] == "USDT" and m["contractType"] == "LinearPerpetual"]
+async def fetch_market_data():
+    async with httpx.AsyncClient(transport=TRANSPORT, timeout=10.0) as client:
+        res = await client.get("https://api.bybit.com/v5/market/tickers?category=linear")
+        return res.json().get("result", {}).get("list", [])
 
-# === SCANNER LOGIC ===
-async def fetch_kline(symbol: str):
+async def fetch_orderbook(symbol):
     try:
-        kline = session.get_kline(category="linear", symbol=symbol, interval="5", limit=2)
-        if "result" in kline:
-            df = pd.DataFrame(kline["result"]["list"], columns=[
-                "timestamp", "open", "high", "low", "close", "volume", "turnover"
-            ])
-            df = df.astype({"open": float, "high": float, "low": float, "close": float, "volume": float})
-            return df
-    except Exception:
-        return None
+        async with httpx.AsyncClient(transport=TRANSPORT, timeout=10.0) as client:
+            res = await client.get(f"https://api.bybit.com/v5/market/orderbook?category=linear&symbol={symbol}&limit=50")
+            return res.json().get("result", {})
+    except:
+        return {}
 
-async def analyze_and_alert(symbol: str):
-    df = await fetch_kline(symbol)
-    if df is None or len(df) < 2:
-        return
+def detect_spoofing(orderbook):
+    bids = orderbook.get("b", [])
+    asks = orderbook.get("a", [])
+    if not bids or not asks:
+        return False
+    top_bid = float(bids[0][1])
+    top_ask = float(asks[0][1])
+    if top_bid > 1_000_000 or top_ask > 1_000_000:
+        return True
+    return False
 
-    prev, latest = df.iloc[-2], df.iloc[-1]
-    volume_spike = latest["volume"] > prev["volume"] * 2
-    breakout = latest["high"] > prev["high"] and latest["close"] > prev["close"]
-    breakdown = latest["low"] < prev["low"] and latest["close"] < prev["close"]
-
-    if volume_spike and (breakout or breakdown):
-        direction = "Long📈" if breakout else "Short📉"
-        entry = latest["close"]
-        msg = f"""🔥 #{symbol}/USDT ({direction}, {LEVERAGE}) 🔥
-Entry - {entry}
-Take-Profit:
-🥉 TP1 (40% of profit)
-🥈 TP2 (60% of profit)
-🥇 TP3 (80% of profit)
-🚀 TP4 (100% of profit)"""
-        await bot.send_message(chat_id=CHANNEL_ID, text=msg)
-
-async def main():
+async def monitor():
     while True:
         try:
-            tasks = [analyze_and_alert(symbol) for symbol in get_usdt_contracts()]
-            await asyncio.gather(*tasks)
-            await asyncio.sleep(60)  # wait 1 min before scanning again
+            markets = await fetch_market_data()
+            for m in markets:
+                symbol = m["symbol"]
+                if not symbol.endswith("USDT"):
+                    continue
+
+                volume = float(m["turnover24h"])
+                price = float(m["lastPrice"])
+                change = float(m["price24hPcnt"]) * 100
+
+                if volume > 5_000_000 and abs(change) > 6:
+                    spoofing = False
+                    orderbook = await fetch_orderbook(symbol)
+                    if detect_spoofing(orderbook):
+                        spoofing = True
+
+                    direction = "Long📈" if change > 0 else "Short📉"
+                    entry = f"{price:.4f}"
+                    tps = [5, 10, 15, 20]
+                    msg = format_telegram_message(symbol, direction, entry, tps)
+
+                    if spoofing:
+                        msg += "\n⚠️ Potential spoofing detected in order book!"
+
+                    # 🐳 Whale detection placeholder (to be connected with wallet tracking)
+                    # msg += "\n🐳 Whale activity detected!"
+
+                    await bot.send_message(chat_id=CHANNEL_ID, text=msg)
+                    print(f"✅ Alert sent for {symbol}: {direction} - {entry}")
+            await asyncio.sleep(300)
         except Exception as e:
-            print("Error:", e)
-            await asyncio.sleep(30)
+            print("❌ Error:", e)
+            await asyncio.sleep(60)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(monitor())
