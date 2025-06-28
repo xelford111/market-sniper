@@ -6,7 +6,7 @@ from telegram import Bot
 
 # === CONFIGURATION ===
 BOT_TOKEN = "7939062269:AAFwdMlsADkSe-6sMB0EqPfhQmw0Fn4DRus"
-CHANNEL_ID = "@rawcryptoalerts"
+CHANNEL_ID = -1002102789824  # ✅ Your actual Telegram channel ID
 LEVERAGE = "x20"
 TRANSPORT = httpx.AsyncHTTPTransport(proxy="http://proxy.zyte.com:8011")
 
@@ -72,9 +72,6 @@ async def monitor():
 
                     if spoofing:
                         msg += "\n⚠️ Potential spoofing detected in order book!"
-
-                    # 🐳 Whale detection placeholder (to be connected with wallet tracking)
-                    # msg += "\n🐳 Whale activity detected!"
 
                     await bot.send_message(chat_id=CHANNEL_ID, text=msg)
                     print(f"✅ Alert sent for {symbol}: {direction} - {entry}")
