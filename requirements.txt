@@ -3,4 +3,5 @@ requests
 python-telegram-bot
 pybit
 aiohttp
+httpx>=0.24.0
 
