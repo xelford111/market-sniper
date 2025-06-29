@@ -1,96 +1,88 @@
 import asyncio
-import pandas as pd
 import httpx
-from pybit.unified_trading import HTTP
+import time
 import logging
-import os
 
-TELEGRAM_BOT_TOKEN = "7939062269:AAFwdMlsADkSe-6sMB0EqPfhQmw0Fn4DRus"
-TELEGRAM_CHAT_ID = "-1002674839519"  # Correct channel ID
-BYBIT_API = "https://api.bybit.com"
-SYMBOLS_URL = f"{BYBIT_API}/v5/market/instruments-info?category=linear"
-CANDLES_URL = f"{BYBIT_API}/v5/market/kline"
-ORDERBOOK_URL = f"{BYBIT_API}/v5/market/orderbook"
-CHECK_INTERVAL = 300  # every 5 minutes
+BOT_TOKEN = "7939062269:AAFwdMlsADkSe-6sMB0EqPfhQmw0Fn4DRus"
+CHANNEL_ID = "-1002248759670"
+VOLUME_SPIKE_MULTIPLIER = 2.0  # Spike if volume is 2x avg of last 10 candles
+BYBIT_URL = "https://api.bybit.com"
+TELEGRAM_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
-logging.basicConfig(level=logging.INFO)
+HEADERS = {"Content-Type": "application/json"}
 
-async def fetch_symbols(client):
-    r = await client.get(SYMBOLS_URL)
-    data = r.json()
-    return [i["symbol"] for i in data["result"]["list"] if "USDT" in i["symbol"]]
-
-async def fetch_candles(client, symbol):
-    r = await client.get(CANDLES_URL, params={
-        "category": "linear",
-        "symbol": symbol,
-        "interval": "5",
-        "limit": 5
-    })
-    return pd.DataFrame(r.json()["result"]["list"], columns=["timestamp", "open", "high", "low", "close", "volume", "turnover"])
-
-async def fetch_orderbook(client, symbol):
-    r = await client.get(ORDERBOOK_URL, params={"category": "linear", "symbol": symbol})
-    return r.json()["result"]
-
-def detect_spoofing(orderbook):
-    top_bids = float(orderbook["b"][0][1])
-    top_asks = float(orderbook["a"][0][1])
-    imbalance = abs(top_bids - top_asks) / max(top_bids, top_asks)
-    return imbalance > 0.6
-
-def detect_whale_activity(orderbook):
-    total_bid = sum(float(i[1]) for i in orderbook["b"][:10])
-    total_ask = sum(float(i[1]) for i in orderbook["a"][:10])
-    return total_bid > 1_000_000 or total_ask > 1_000_000
-
-async def send_telegram_alert(text):
+async def send_telegram_message(message: str):
     async with httpx.AsyncClient() as client:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        await client.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": text})
+        await client.post(TELEGRAM_URL, json={"chat_id": CHANNEL_ID, "text": message, "parse_mode": "Markdown"})
 
-async def analyze_symbol(client, symbol):
-    candles = await fetch_candles(client, symbol)
-    if candles.empty or len(candles) < 3:
-        return
-    recent = candles.iloc[-1]
-    prev = candles.iloc[-2]
-    change = (float(recent["close"]) - float(prev["close"])) / float(prev["close"])
-    volume_spike = float(recent["volume"]) > float(candles["volume"].astype(float).mean()) * 2
-    if abs(change) > 0.02 and volume_spike:
-        orderbook = await fetch_orderbook(client, symbol)
-        if detect_spoofing(orderbook):
-            return await send_telegram_alert(f"🕵️ Spoofing detected on {symbol}")
-        if detect_whale_activity(orderbook):
-            return await send_telegram_alert(f"🐋 Whale activity on {symbol}")
-        direction = "Long📈" if change > 0 else "Short📉"
-        entry = float(recent["close"])
-        msg = (
-            f"🔥 #{symbol} ({direction}, x20) 🔥\n"
-            f"Entry - {entry:.4f}\n"
-            f"Take-Profit:\n"
-            f"🥉 TP1\n"
-            f"🥈 TP2\n"
-            f"🥇 TP3\n"
-            f"🚀 TP4"
-        )
-        await send_telegram_alert(msg)
+async def fetch_candles(symbol: str):
+    try:
+        url = f"{BYBIT_URL}/v5/market/kline"
+        params = {
+            "category": "linear",
+            "symbol": symbol,
+            "interval": "5",
+            "limit": 15
+        }
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(url, params=params)
+            data = response.json()
+            if "result" in data and "list" in data["result"]:
+                return list(reversed(data["result"]["list"]))
+    except Exception as e:
+        logging.error(f"Error fetching candles for {symbol}: {e}")
+    return None
 
-async def main_loop():
-    transport = httpx.HTTPTransport(retries=2)
-    async with httpx.AsyncClient(transport=transport, timeout=10) as client:
-        try:
-            await send_telegram_alert("✅ [TEST ALERT] Market Sniper Bot is live (using proxy)")
-        except Exception as e:
-            logging.error(f"❌ Failed to send test alert: {e}")
-        while True:
-            try:
-                symbols = await fetch_symbols(client)
-                tasks = [analyze_symbol(client, s) for s in symbols]
-                await asyncio.gather(*tasks)
-            except Exception as e:
-                logging.error(f"Main loop error: {e}")
-            await asyncio.sleep(CHECK_INTERVAL)
+async def get_symbols():
+    try:
+        url = f"{BYBIT_URL}/v5/market/instruments-info?category=linear"
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(url)
+            data = response.json()
+            return [x["symbol"] for x in data["result"]["list"] if "USDT" in x["symbol"]]
+    except Exception as e:
+        logging.error(f"Error fetching symbols: {e}")
+    return []
+
+def detect_breakout(candles):
+    if len(candles) < 5:
+        return False
+
+    latest = candles[-1]
+    previous = candles[-2]
+
+    latest_close = float(latest[4])
+    previous_close = float(previous[4])
+
+    # Breakout or dump logic
+    return abs(latest_close - previous_close) / previous_close > 0.01  # >1% move
+
+def is_volume_spike(candles):
+    if len(candles) < 11:
+        return False
+    volumes = [float(c[5]) for c in candles[-11:-1]]  # last 10 before current
+    avg_volume = sum(volumes) / len(volumes)
+    current_volume = float(candles[-1][5])
+    return current_volume > avg_volume * VOLUME_SPIKE_MULTIPLIER
+
+async def scan_market():
+    symbols = await get_symbols()
+    while True:
+        for symbol in symbols:
+            candles = await fetch_candles(symbol)
+            if candles and detect_breakout(candles) and is_volume_spike(candles):
+                close_price = float(candles[-1][4])
+                msg = f"🔥 *#{symbol}/USDT* Detected!
+"                       f"Breakout with strong volume at *{close_price:.4f}* 🔍
+
+"                       f"Watch for continuation or fade."
+                await send_telegram_message(msg)
+        await asyncio.sleep(30)
+
+async def main():
+    await send_telegram_message("🚨 Market Sniper bot started with Volume Spike filter.")
+    await scan_market()
 
 if __name__ == "__main__":
-    asyncio.run(main_loop())
+    asyncio.run(main())
+
