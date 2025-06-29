@@ -13,12 +13,16 @@ API_KEY = "1Lf8RrbAZwhGz42UNY"
 API_SECRET = "GCk1nVJZUOxMu5xFJP7IMj19PHeCPz4uMVSH"
 
 TP_MULTIPLIERS = [1.02, 1.04, 1.06, 1.08]
+PROXY = "http://proxy.scrapeops.io:5353"
 BREAKOUT_THRESHOLD = 1.009  # Lowered from 1.012 (0.9% move)
 VOLUME_SPIKE_RATIO = 1.3    # Lowered from 1.5 to 1.3
 
 # --- INITIALIZE ---
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
-client = HTTP(api_key=API_KEY, api_secret=API_SECRET, testnet=False)
+def get_client():
+    return HTTP(api_key=API_KEY, api_secret=API_SECRET, testnet=False, proxies={"http": PROXY, "https": PROXY})
+
+client = get_client()
 
 async def fetch_5m_candles(symbol):
     try:
@@ -82,6 +86,8 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 
+# --- MANUAL TEST (Optional) ---
+# Uncomment this to send a test signal on script start
 # --- MANUAL TEST (Optional) ---
 # Uncomment this to send a test signal on script start
 # asyncio.run(send_telegram_alert("BTCUSDT", "Long", 62000.0, 92))
