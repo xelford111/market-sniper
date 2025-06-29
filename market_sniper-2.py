@@ -10,12 +10,12 @@ from telegram import Bot
 # --- USER CONFIG ---
 TELEGRAM_BOT_TOKEN = "7939062269:AAFwdMlsADkSe-6sMB0EqPfhQmw0Fn4DRus"
 TELEGRAM_CHANNEL_ID = "-1002674839519"
-PROXY = "http://proxy.scrapeops.io:5353"
-API_KEY = ""
-API_SECRET = ""
+PROXY = "http://proxy.scrapeops.io:5353"  # Working public proxy
+API_KEY = "your_bybit_readonly_key"
+API_SECRET = "your_bybit_readonly_secret"
 
 TP_MULTIPLIERS = [1.02, 1.04, 1.06, 1.08]
-BREAKOUT_THRESHOLD = 1.01
+BREAKOUT_THRESHOLD = 1.012  # Loosened for more signals
 VOLUME_SPIKE_MULTIPLIER = 2.0
 SPOOFING_THRESHOLD = 2.0
 CANDLE_INTERVAL = 5  # 5-minute candles
@@ -28,7 +28,10 @@ session = HTTP(testnet=False, api_key=API_KEY, api_secret=API_SECRET)
 
 # --- SEND TELEGRAM ALERT ---
 async def send_telegram_alert(msg: str):
-    await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=msg)
+    try:
+        await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=msg)
+    except Exception as e:
+        print(f"Telegram Error: {e}")
 
 # --- FETCH CANDLE DATA ---
 async def get_ohlcv(symbol: str):
@@ -50,19 +53,20 @@ async def get_ohlcv(symbol: str):
         print(f"Error fetching OHLCV for {symbol}: {e}")
         return None
 
-# --- CHECK FOR SPOOFING ---
+# --- SPOOFING DETECTION ---
 async def detect_spoofing(symbol: str):
     try:
         ob = session.get_orderbook(symbol=symbol)
         bids = ob["result"]["b"]
         asks = ob["result"]["a"]
-        top_bid = float(bids[0][1])
-        top_ask = float(asks[0][1])
-        deeper_bid = float(bids[10][1])
-        deeper_ask = float(asks[10][1])
-        if top_bid / deeper_bid > SPOOFING_THRESHOLD or top_ask / deeper_ask > SPOOFING_THRESHOLD:
-            alert_msg = f"⚠️ Spoofing Detected on {symbol}"
-            await send_telegram_alert(alert_msg)
+        if len(bids) > 10 and len(asks) > 10:
+            top_bid = float(bids[0][1])
+            deeper_bid = float(bids[10][1])
+            top_ask = float(asks[0][1])
+            deeper_ask = float(asks[10][1])
+            if top_bid / deeper_bid > SPOOFING_THRESHOLD or top_ask / deeper_ask > SPOOFING_THRESHOLD:
+                alert_msg = f"⚠️ Spoofing Detected on {symbol}"
+                await send_telegram_alert(alert_msg)
     except Exception as e:
         print(f"Spoofing check error for {symbol}: {e}")
 
@@ -77,38 +81,10 @@ def format_signal(symbol: str, entry: float, direction: str) -> str:
         msg += f"{medal} TP{i} ({int(mult*100-100)}%) = {tp:.4f}\n"
     return msg
 
-# --- SCAN COINS ---
+# --- MARKET SCANNER ---
 async def scan_market():
     markets = session.get_instruments_info(category="linear")["result"]["list"]
     usdt_pairs = [m["symbol"] for m in markets if "USDT" in m["symbol"]]
-    async with httpx.AsyncClient(proxies={"http://": PROXY, "https://": PROXY}, timeout=10) as client:
+    async with httpx.AsyncClient(proxies={"http://": PROXY, "https://": PROXY}, timeout=15) as client:
         for symbol in usdt_pairs:
             df = await get_ohlcv(symbol)
-            if df is None or len(df) < 5:
-                continue
-            last = df.iloc[-1]
-            prev = df.iloc[-2]
-            avg_volume = df["volume"][-20:].mean()
-            if last["close"] > prev["close"] * BREAKOUT_THRESHOLD and last["volume"] > avg_volume * VOLUME_SPIKE_MULTIPLIER:
-                direction = "Long"
-                msg = format_signal(symbol, last["close"], direction)
-                await send_telegram_alert(msg)
-            elif last["close"] < prev["close"] / BREAKOUT_THRESHOLD and last["volume"] > avg_volume * VOLUME_SPIKE_MULTIPLIER:
-                direction = "Short"
-                msg = format_signal(symbol, last["close"], direction)
-                await send_telegram_alert(msg)
-            await detect_spoofing(symbol)
-
-# --- MAIN LOOP ---
-async def main_loop():
-    sent_live = False
-    while True:
-        if not sent_live:
-            await send_telegram_alert("🤖 Market Sniper Bot is now LIVE!")
-            sent_live = True
-        await scan_market()
-        await asyncio.sleep(CANDLE_INTERVAL * 60)
-
-# --- START ---
-if __name__ == "__main__":
-    asyncio.run(main_loop())
