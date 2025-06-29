@@ -2,92 +2,85 @@ import asyncio
 import httpx
 import time
 from datetime import datetime
-import pandas as pd
 from pybit.unified_trading import HTTP
 from telegram import Bot
 
-# --- USER CONFIG ---
+# === YOUR CONFIG ===
+API_KEY = "your_bybit_readonly_key"
+API_SECRET = "your_bybit_readonly_secret"
 TELEGRAM_BOT_TOKEN = "7939062269:AAFwdMlsADkSe-6sMB0EqPfhQmw0Fn4DRus"
 TELEGRAM_CHANNEL_ID = "-1002674839519"
-API_KEY = "1Lf8RrbAZwhGz42UNY"
-API_SECRET = "GCk1nVJZUOxMu5xFJP7IMj19PHeCPz4uMVSH"
+PROXY_URL = "http://proxy.scrapeops.io:5353"
 
 TP_MULTIPLIERS = [1.02, 1.04, 1.06, 1.08]
-PROXY = "http://proxy.scrapeops.io:5353"
-BREAKOUT_THRESHOLD = 1.009  # Lowered from 1.012 (0.9% move)
-VOLUME_SPIKE_RATIO = 1.3    # Lowered from 1.5 to 1.3
+BREAKOUT_THRESHOLD = 1.012
+SIGNAL_SCORE_THRESHOLD = 3.0
 
-# --- INITIALIZE ---
-bot = Bot(token=TELEGRAM_BOT_TOKEN)
+# === SETUP CLIENT WITH FORCED PROXY ===
 def get_client():
-    return HTTP(api_key=API_KEY, api_secret=API_SECRET, testnet=False)
+    transport = httpx.AsyncHTTPTransport(proxy=PROXY_URL)
+    http_client = httpx.AsyncClient(transport=transport)
+    return HTTP(api_key=API_KEY, api_secret=API_SECRET, testnet=False, http_client=http_client)
 
 client = get_client()
+bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
-async def fetch_5m_candles(symbol):
-    try:
-        resp = await client.get_kline(category="linear", symbol=symbol, interval="5", limit=5)
-        return pd.DataFrame(resp['result']['list'], columns=[
-            "timestamp", "open", "high", "low", "close", "volume", "turnover"
-        ])
-    except Exception:
-        return None
-
-def calculate_signal_strength(price_change, volume_ratio, wall_confidence, spoof_detected):
-    strength = 0
-    strength += min(max((price_change - 0.009) * 2000, 0), 30)  # Up to 30 pts
-    strength += min(max((volume_ratio - 1.3) * 50, 0), 30)      # Up to 30 pts
-    strength += wall_confidence * 25                           # 0 to 25 pts
-    if not spoof_detected:
-        strength += 15
-    return min(round(strength), 100)
-
-async def send_telegram_alert(symbol, direction, entry_price, signal_strength):
-    emoji = "📈" if direction == "Long" else "📉"
-    tps = [round(entry_price * m, 5) if direction == "Long" else round(entry_price / m, 5) for m in TP_MULTIPLIERS]
-    message = f"🔥 #{symbol} ({direction}{emoji}, x20) 🔥\n"
-    message += f"Entry - {entry_price}\n"
-    message += "Take-Profit:\n"
-    message += f"🥉 TP1 (40%): {tps[0]}\n🥈 TP2 (60%): {tps[1]}\n🥇 TP3 (80%): {tps[2]}\n🚀 TP4 (100%): {tps[3]}\n"
-    message += f"\nSignal Strength: {signal_strength}%"
-    await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=message)
-
+# === SCAN MARKET ===
 async def scan_market():
-    symbols = [s['symbol'] for s in (await client.get_tickers(category="linear"))['result']['list'] if "USDT" in s['symbol']]
-    for symbol in symbols:
-        df = await fetch_5m_candles(symbol)
-        if df is None or len(df) < 5:
+    try:
+        tickers = (await client.get_tickers(category="linear"))["result"]["list"]
+    except Exception as e:
+        print(f"[ERROR] Ticker fetch failed: {e}")
+        return
+
+    for s in tickers:
+        symbol = s["symbol"]
+        if "USDT" not in symbol:
             continue
+        try:
+            mark_price = float(s["lastPrice"])
+            vol = float(s["turnover24h"])
+            open_price = float(s["indexPrice"])
+            score = 0
 
-        df = df.astype(float)
-        recent = df.iloc[-1]
-        prev = df.iloc[-4:-1]  # last 3 prior candles
+            # Price breakout
+            if mark_price > open_price * BREAKOUT_THRESHOLD:
+                score += 1
 
-        price_change = float(recent['close']) / float(recent['open'])
-        avg_volume = prev['volume'].astype(float).mean()
-        volume_ratio = float(recent['volume']) / avg_volume
+            # Volume filter
+            if vol > 10000000:
+                score += 1
 
-        if price_change >= BREAKOUT_THRESHOLD or price_change <= (1 / BREAKOUT_THRESHOLD):
-            if volume_ratio >= VOLUME_SPIKE_RATIO:
-                spoof_detected = False  # placeholder
-                wall_confidence = 1     # placeholder, can be 0–1 based on depth imbalance later
+            # Add spoofing / wall detection logic here if needed
 
-                direction = "Long" if price_change > 1 else "Short"
-                entry_price = float(recent['close'])
-                signal_strength = calculate_signal_strength(price_change, volume_ratio, wall_confidence, spoof_detected)
+            # Signal strength
+            if score >= SIGNAL_SCORE_THRESHOLD:
+                await send_signal(symbol, mark_price)
+        except Exception as e:
+            print(f"[ERROR] While scanning {symbol}: {e}")
 
-                await send_telegram_alert(symbol, direction, entry_price, signal_strength)
+# === SEND ALERT ===
+async def send_signal(symbol, entry):
+    tps = [round(entry * m, 6) for m in TP_MULTIPLIERS]
+    message = f"""🔥 #{symbol} (Long📈, x20) 🔥
+Entry - {entry}
+Take-Profit:
+🥉 TP1 {tps[0]}
+🥈 TP2 {tps[1]}
+🥇 TP3 {tps[2]}
+🚀 TP4 {tps[3]}"""
+    try:
+        await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=message)
+        print(f"[SENT] {symbol} breakout alert")
+    except Exception as e:
+        print(f"[ERROR] Sending alert: {e}")
 
-async def main():
+# === MAIN LOOP ===
+async def main_loop():
     while True:
         await scan_market()
         await asyncio.sleep(60)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main_loop())
 
-# --- MANUAL TEST (Optional) ---
-# Uncomment this to send a test signal on script start
-# --- MANUAL TEST (Optional) ---
-# Uncomment this to send a test signal on script start
-asyncio.run(send_telegram_alert("BTCUSDT", "Long", 62000.0, 92))
