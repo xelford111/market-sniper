@@ -91,3 +91,4 @@ if __name__ == "__main__":
 # --- MANUAL TEST (Optional) ---
 # Uncomment this to send a test signal on script start
 asyncio.run(send_telegram_alert("BTCUSDT", "Long", 62000.0, 92))
+
