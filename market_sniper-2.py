@@ -1,103 +1,96 @@
-async def detect_spoofing(order_book):
-    # Placeholder spoofing logic: flag if large orders disappear quickly
-    spoofing_detected = False
-    large_orders = [order for order in order_book['asks'] if order[1] > 50000]  # Mock threshold
-    if len(large_orders) > 3:
-        spoofing_detected = True
-    return spoofing_detected
-
-
 
 import asyncio
+import time
 import httpx
 import json
-import time
-import traceback
+import hmac
+import hashlib
 from datetime import datetime
-from statistics import mean
+from telethon import TelegramClient
+from telethon.tl.functions.messages import GetHistoryRequest
 
-import numpy as np
-import pandas as pd
-from telebot import TeleBot
+# === CONFIG ===
+TELEGRAM_BOT_TOKEN = "7939062269:AAFwdMlsADkSe-6sMB0EqPfhQmw0Fn4DRus"
+TELEGRAM_CHAT_ID = "-1002674839519"
+BYBIT_API_URL = "https://api.bybit.com"
+CANDLE_INTERVAL = "5"  # 5-minute candles
+VOLUME_SPIKE_MULTIPLIER = 2.0
+PRICE_MOVE_THRESHOLD = 1.5  # percent
+TOP_PAIRS_LIMIT = 30
+PROXY_ENABLED = True
+PROXY_URL = "http://proxy.example.com:8080"
 
-# === CONFIGURATION ===
-BOT_TOKEN = "7939062269:AAFwdMlsADkSe-6sMB0EqPfhQmw0Fn4DRus"
-CHANNEL_ID = "-1002674839519"
-FETCH_INTERVAL = 300  # 5-minute candles
-
-# === TELEGRAM ALERTING ===
-bot = TeleBot(BOT_TOKEN)
-
-def send_alert(msg):
+# === TELEGRAM ALERT ===
+def send_telegram_alert(message: str):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "HTML"
+    }
     try:
-        bot.send_message(CHANNEL_ID, msg)
+        response = httpx.post(url, json=payload)
+        response.raise_for_status()
     except Exception as e:
-        print(f"Telegram send error: {e}")
+        print(f"[TELEGRAM ERROR] {e}")
 
-# === TEST ALERT ON STARTUP ===
-send_alert("✅ [TEST ALERT] Market Sniper Bot is Live (5-minute candles, proxy enabled)")
-
-# === MAIN LOGIC ===
-async def fetch_klines(symbol):
-    url = f"https://api.bybit.com/v5/market/kline?category=linear&symbol={symbol}&interval=5&limit=100"
-    async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.get(url)
-        data = r.json()
-        if "result" not in data or "list" not in data["result"]:
-            return []
-        return data["result"]["list"]
-
-async def fetch_symbols():
-    url = "https://api.bybit.com/v5/market/instruments-info?category=linear"
-    async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.get(url)
+# === FETCH COIN LIST ===
+async def get_perpetual_symbols():
+    async with httpx.AsyncClient() as client:
+        r = await client.get(f"{BYBIT_API_URL}/v5/market/instruments-info?category=linear")
         data = r.json()
         return [x["symbol"] for x in data["result"]["list"] if "USDT" in x["symbol"]]
 
-def detect_breakout(df):
-    try:
-        closes = df["close"].astype(float)
-        highs = df["high"].astype(float)
-        lows = df["low"].astype(float)
-        last = closes.iloc[-1]
-        prev = closes.iloc[-2]
-        avg_vol = mean(abs(closes.diff().fillna(0)))
-        breakout = abs(last - prev) > 1.5 * avg_vol
-        volume_spike = df["volume"].astype(float).iloc[-1] > 1.5 * mean(df["volume"].astype(float).iloc[-10:])
-        return breakout and volume_spike
-    except Exception:
-        return False
+# === FETCH LATEST CANDLES ===
+async def get_kline(symbol):
+    url = f"{BYBIT_API_URL}/v5/market/kline"
+    params = {"category": "linear", "symbol": symbol, "interval": CANDLE_INTERVAL, "limit": 3}
+    async with httpx.AsyncClient() as client:
+        r = await client.get(url, params=params)
+        return r.json()["result"]["list"]
 
-async def scan():
-    symbols = await fetch_symbols()
-    print(f"Scanning {len(symbols)} symbols...")
-    for symbol in symbols:
+# === SPOOFING CHECK ===
+async def detect_spoofing(symbol):
+    url = f"{BYBIT_API_URL}/v5/market/orderbook"
+    params = {"category": "linear", "symbol": symbol, "limit": 50}
+    async with httpx.AsyncClient() as client:
+        r = await client.get(url, params=params)
+        ob = r.json()["result"]
+        bids = ob["b"]
+        asks = ob["a"]
+        total_bid = sum(float(b[1]) for b in bids)
+        total_ask = sum(float(a[1]) for a in asks)
+        ratio = total_bid / total_ask if total_ask else 0
+        return ratio > 2.5 or ratio < 0.4  # spoofing threshold
+
+# === MAIN SNIPING LOOP ===
+async def market_sniper():
+    symbols = await get_perpetual_symbols()
+    for symbol in symbols[:TOP_PAIRS_LIMIT]:
         try:
-            raw = await fetch_klines(symbol)
-            if not raw or len(raw) < 30:
+            klines = await get_kline(symbol)
+            if len(klines) < 3:
                 continue
-            df = pd.DataFrame(raw, columns=[
-                "timestamp", "open", "high", "low", "close", "volume", "turnover"
-            ])
-            df["close"] = df["close"].astype(float)
-            df["volume"] = df["volume"].astype(float)
+            _, _, high1, low1, close1, vol1 = map(float, klines[-3])
+            _, _, high2, low2, close2, vol2 = map(float, klines[-2])
+            _, _, high3, low3, close3, vol3 = map(float, klines[-1])
 
-            if detect_breakout(df):
-                msg = f"🔥 #{symbol}/USDT (5m breakout) 🔥\nEntry - {df['close'].iloc[-1]:.4f}\nTP1 🎯 +2%\nTP2 🎯 +4%\nTP3 🎯 +6%\n🚀 TP4 +10%"
-                send_alert(msg)
+            price_move = (close3 - close2) / close2 * 100
+            volume_spike = vol3 > VOLUME_SPIKE_MULTIPLIER * max(vol1, vol2)
 
+            if abs(price_move) >= PRICE_MOVE_THRESHOLD and volume_spike:
+                spoofing = await detect_spoofing(symbol)
+                alert = f"🔥 #{symbol}/USDT {'Long📈' if price_move > 0 else 'Short📉'} 🔥\n"
+                alert += f"<b>Entry</b>: {close3:.4f}\n"
+                alert += f"TP1: {close3 * 1.01:.4f} | TP2: {close3 * 1.02:.4f} | TP3: {close3 * 1.03:.4f}\n"
+                if spoofing:
+                    alert += "⚠️ <i>Spoofing Detected</i>"
+
+                send_telegram_alert(alert)
         except Exception as e:
-            print(f"[{symbol}] scan error: {e}")
-            traceback.print_exc()
+            print(f"[ERROR] {symbol}: {e}")
 
-async def main_loop():
-    while True:
-        try:
-            await scan()
-        except Exception as e:
-            print(f"Scan loop error: {e}")
-        await asyncio.sleep(FETCH_INTERVAL)
-
+# === START ===
 if __name__ == "__main__":
-    asyncio.run(main_loop())
-
+    send_telegram_alert("✅ [TEST ALERT] Market Sniper Bot is live (5m candles, proxy enabled)")
+    asyncio.run(market_sniper())
