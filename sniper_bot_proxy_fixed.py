@@ -2,19 +2,19 @@ import asyncio
 import httpx
 import time
 from datetime import datetime
+from telegram import Bot
 import pandas as pd
 from pybit.unified_trading import HTTP
-from telegram import Bot
 
-# --- USER CONFIG ---
+# === USER CONFIGURATION ===
 TELEGRAM_BOT_TOKEN = "7939062269:AAFwdMlsADkSe-6sMB0EqPfhQmw0Fn4DRus"
 TELEGRAM_CHANNEL_ID = "-1002674839519"
-API_KEY = "your_bybit_readonly_key"
-API_SECRET = "your_bybit_readonly_secret"
+API_KEY = "d6RJdPZMbzFy1xD8Jt"  # ✅ Your real API key
+API_SECRET = "hKRJkP29kcKrtzQQfiwKz2cGb93ZklKHEytD"  # ✅ Your real API secret
 PROXY = "http://proxy.scrapeops.io:5353"
 
 TP_MULTIPLIERS = [1.02, 1.04, 1.06, 1.08]
-BREAKOUT_THRESHOLD = 1.012
+BREAKOUT_THRESHOLD = 1.012  # 1.2% breakout filter
 
 client = httpx.AsyncClient(proxies=PROXY, timeout=15.0)
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
@@ -27,7 +27,7 @@ async def get_perp_symbols(bybit_client):
         resp = bybit_client.get_tickers(category="linear")
         return [s["symbol"] for s in resp["result"]["list"] if "USDT" in s["symbol"]]
     except Exception as e:
-        print(f"Error fetching symbols: {e}")
+        print(f"[symbol error] {e}")
         return []
 
 async def get_kline(symbol):
@@ -37,8 +37,20 @@ async def get_kline(symbol):
         resp = await client.get(url, params=params)
         return resp.json()
     except Exception as e:
-        print(f"Kline fetch failed: {e}")
+        print(f"[kline error] {symbol}: {e}")
         return {}
+
+async def send_alert(symbol, price, direction):
+    msg = (
+        f"🔥 #{symbol} ({direction}, x20) 🔥\n"
+        f"Entry - {price:.4f}\n"
+        f"Take-Profit:\n"
+        f"🥉 TP1: {price * TP_MULTIPLIERS[0]:.4f}\n"
+        f"🥈 TP2: {price * TP_MULTIPLIERS[1]:.4f}\n"
+        f"🥇 TP3: {price * TP_MULTIPLIERS[2]:.4f}\n"
+        f"🚀 TP4: {price * TP_MULTIPLIERS[3]:.4f}"
+    )
+    await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=msg)
 
 async def scan_market():
     bybit_client = get_bybit_client()
@@ -54,19 +66,23 @@ async def scan_market():
             continue
 
         prev = candles[-2]
-        latest = candles[-1]
+        curr = candles[-1]
 
         prev_close = float(prev[4])
-        curr_close = float(latest[4])
-        volume = float(latest[5])
-        timestamp = int(latest[0])
+        curr_close = float(curr[4])
+        volume = float(curr[5])
 
         if curr_close > prev_close * BREAKOUT_THRESHOLD:
-            await send_alert(symbol, curr_close, volume, "Long📈")
+            await send_alert(symbol, curr_close, "Long📈")
 
-async def send_alert(symbol, price, volume, direction):
-    msg = (
-        f"🔥 #{symbol} ( {direction}, x20 ) 🔥\n"
-        f"Entry - {price:.4f}\n"
-        f"Take-Profit:\n"
+async def main():
+    while True:
+        try:
+            await scan_market()
+        except Exception as e:
+            print(f"[main loop error] {e}")
+        await asyncio.sleep(60)
+
+if __name__ == "__main__":
+    asyncio.run(main())
 
