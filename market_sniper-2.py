@@ -1,115 +1,103 @@
+async def detect_spoofing(order_book):
+    # Placeholder spoofing logic: flag if large orders disappear quickly
+    spoofing_detected = False
+    large_orders = [order for order in order_book['asks'] if order[1] > 50000]  # Mock threshold
+    if len(large_orders) > 3:
+        spoofing_detected = True
+    return spoofing_detected
+
+
 
 import asyncio
-import logging
-import time
-import pandas as pd
-from pybit.unified_trading import HTTP
-from datetime import datetime, timedelta
 import httpx
-import requests
+import json
+import time
+import traceback
+from datetime import datetime
+from statistics import mean
 
-# Telegram setup
-TELEGRAM_TOKEN = "7939062269:AAFwdMlsADkSe-6sMB0EqPfhQmw0Fn4DRus"
+import numpy as np
+import pandas as pd
+from telebot import TeleBot
+
+# === CONFIGURATION ===
+BOT_TOKEN = "7939062269:AAFwdMlsADkSe-6sMB0EqPfhQmw0Fn4DRus"
 CHANNEL_ID = "-1002674839519"
+FETCH_INTERVAL = 300  # 5-minute candles
 
-# Constants
-INTERVAL = 5  # minutes
-LIMIT = 100
-VOLUME_THRESHOLD = 2.0  # 2x spike
-WHALE_THRESHOLD = 100000  # $ value
-ORDERBOOK_DEPTH = 50
+# === TELEGRAM ALERTING ===
+bot = TeleBot(BOT_TOKEN)
 
-session = HTTP(testnet=False)
-
-def send_telegram_message(text: str):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    data = {"chat_id": CHANNEL_ID, "text": text}
+def send_alert(msg):
     try:
-        r = requests.post(url, data=data)
-        if not r.ok:
-            print(f"Telegram error: {r.text}")
+        bot.send_message(CHANNEL_ID, msg)
     except Exception as e:
         print(f"Telegram send error: {e}")
 
-async def fetch_candles(symbol):
-    try:
-        res = session.get_kline(category="linear", symbol=symbol, interval=str(INTERVAL), limit=LIMIT)
-        return res["result"]["list"]
-    except Exception as e:
-        print(f"Error fetching candles for {symbol}: {e}")
-        return []
+# === TEST ALERT ON STARTUP ===
+send_alert("✅ [TEST ALERT] Market Sniper Bot is Live (5-minute candles, proxy enabled)")
 
-async def fetch_orderbook(symbol):
-    try:
-        url = f"https://api.bybit.com/v5/market/orderbook?category=linear&symbol={symbol}"
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.get(url)
-            data = response.json()
-            return data["result"]
-    except Exception as e:
-        print(f"Orderbook fetch failed: {e}")
-        return {}
+# === MAIN LOGIC ===
+async def fetch_klines(symbol):
+    url = f"https://api.bybit.com/v5/market/kline?category=linear&symbol={symbol}&interval=5&limit=100"
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(url)
+        data = r.json()
+        if "result" not in data or "list" not in data["result"]:
+            return []
+        return data["result"]["list"]
 
-def detect_volume_spike(df):
-    if len(df) < 2:
-        return False
-    prev_vol = float(df[-2][5])
-    curr_vol = float(df[-1][5])
-    return curr_vol > prev_vol * VOLUME_THRESHOLD
+async def fetch_symbols():
+    url = "https://api.bybit.com/v5/market/instruments-info?category=linear"
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(url)
+        data = r.json()
+        return [x["symbol"] for x in data["result"]["list"] if "USDT" in x["symbol"]]
 
-def detect_whale_order(orderbook):
+def detect_breakout(df):
     try:
-        bids = orderbook["b"]
-        asks = orderbook["a"]
-        top_bid = float(bids[0][1])
-        top_ask = float(asks[0][1])
-        return top_bid > WHALE_THRESHOLD or top_ask > WHALE_THRESHOLD
+        closes = df["close"].astype(float)
+        highs = df["high"].astype(float)
+        lows = df["low"].astype(float)
+        last = closes.iloc[-1]
+        prev = closes.iloc[-2]
+        avg_vol = mean(abs(closes.diff().fillna(0)))
+        breakout = abs(last - prev) > 1.5 * avg_vol
+        volume_spike = df["volume"].astype(float).iloc[-1] > 1.5 * mean(df["volume"].astype(float).iloc[-10:])
+        return breakout and volume_spike
     except Exception:
         return False
 
-def detect_spoofing(orderbook):
-    try:
-        bids = orderbook["b"][:ORDERBOOK_DEPTH]
-        asks = orderbook["a"][:ORDERBOOK_DEPTH]
-        bid_volume = sum(float(b[1]) for b in bids)
-        ask_volume = sum(float(a[1]) for a in asks)
-        imbalance = abs(bid_volume - ask_volume) / max(bid_volume, ask_volume)
-        return imbalance > 0.7
-    except Exception:
-        return False
+async def scan():
+    symbols = await fetch_symbols()
+    print(f"Scanning {len(symbols)} symbols...")
+    for symbol in symbols:
+        try:
+            raw = await fetch_klines(symbol)
+            if not raw or len(raw) < 30:
+                continue
+            df = pd.DataFrame(raw, columns=[
+                "timestamp", "open", "high", "low", "close", "volume", "turnover"
+            ])
+            df["close"] = df["close"].astype(float)
+            df["volume"] = df["volume"].astype(float)
 
-async def analyze_symbol(symbol):
-    candles = await fetch_candles(symbol)
-    orderbook = await fetch_orderbook(symbol)
-    if not candles or not orderbook:
-        return
+            if detect_breakout(df):
+                msg = f"🔥 #{symbol}/USDT (5m breakout) 🔥\nEntry - {df['close'].iloc[-1]:.4f}\nTP1 🎯 +2%\nTP2 🎯 +4%\nTP3 🎯 +6%\n🚀 TP4 +10%"
+                send_alert(msg)
 
-    volume_spike = detect_volume_spike(candles)
-    whale_alert = detect_whale_order(orderbook)
-    spoofing = detect_spoofing(orderbook)
-
-    if volume_spike or whale_alert or spoofing:
-        msg = f"🔥 #{symbol}/USDT Detected!"
-        if volume_spike:
-            msg += "
-📊 Volume Spike"
-        if whale_alert:
-            msg += "
-🐋 Whale Order Detected"
-        if spoofing:
-            msg += "
-🧙‍♂️ Potential Spoofing"
-        send_telegram_message(msg)
+        except Exception as e:
+            print(f"[{symbol}] scan error: {e}")
+            traceback.print_exc()
 
 async def main_loop():
-    send_telegram_message("✅ [TEST ALERT] Market Sniper Bot is live (via proxy)")
-    market_data = session.get_instruments_info(category="linear")
-    symbols = [item["symbol"] for item in market_data["result"]["list"] if "USDT" in item["symbol"]]
-
     while True:
-        tasks = [analyze_symbol(symbol) for symbol in symbols]
-        await asyncio.gather(*tasks)
-        time.sleep(INTERVAL * 60)
+        try:
+            await scan()
+        except Exception as e:
+            print(f"Scan loop error: {e}")
+        await asyncio.sleep(FETCH_INTERVAL)
 
 if __name__ == "__main__":
     asyncio.run(main_loop())
+
