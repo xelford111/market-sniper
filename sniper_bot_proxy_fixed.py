@@ -2,87 +2,81 @@ import asyncio
 import httpx
 import time
 from datetime import datetime
-from telegram import Bot
 import pandas as pd
 from pybit.unified_trading import HTTP
+from telegram import Bot
 
-# === USER CONFIGURATION ===
+# === USER CONFIG (LIVE) ===
+API_KEY = "wL5s9Thvmz4wiOFtQh"
+API_SECRET = "fOW8R0SgOqXfB7bO3OxpYvR3bJPI2IuXuxiN"
 TELEGRAM_BOT_TOKEN = "7939062269:AAFwdMlsADkSe-6sMB0EqPfhQmw0Fn4DRus"
 TELEGRAM_CHANNEL_ID = "-1002674839519"
-API_KEY = "d6RJdPZMbzFy1xD8Jt"  # ✅ Your real API key
-API_SECRET = "hKRJkP29kcKrtzQQfiwKz2cGb93ZklKHEytD"  # ✅ Your real API secret
 PROXY = "http://proxy.scrapeops.io:5353"
 
 TP_MULTIPLIERS = [1.02, 1.04, 1.06, 1.08]
-BREAKOUT_THRESHOLD = 1.012  # 1.2% breakout filter
+BREAKOUT_THRESHOLD = 1.012  # Loosened for more signal sensitivity
 
-client = httpx.AsyncClient(proxies=PROXY, timeout=15.0)
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
-def get_bybit_client():
-    return HTTP(api_key=API_KEY, api_secret=API_SECRET, testnet=False)
+def get_client():
+    transport = httpx.AsyncHTTPTransport(proxy=PROXY)
+    http_client = httpx.AsyncClient(transport=transport, timeout=15.0)
+    return HTTP(api_key=API_KEY, api_secret=API_SECRET, testnet=False, httpx_client=http_client)
 
-async def get_perp_symbols(bybit_client):
-    try:
-        resp = bybit_client.get_tickers(category="linear")
-        return [s["symbol"] for s in resp["result"]["list"] if "USDT" in s["symbol"]]
-    except Exception as e:
-        print(f"[symbol error] {e}")
-        return []
+def format_alert(symbol, side, entry_price):
+    direction = "Long📈" if side == "Buy" else "Short📉"
+    tps = [round(entry_price * m, 4) if side == "Buy" else round(entry_price / m, 4) for m in TP_MULTIPLIERS]
+    tp_lines = "\n".join([
+        f"🥉 TP1 ({TP_MULTIPLIERS[0]-1:.0%}) - {tps[0]}",
+        f"🥈 TP2 ({TP_MULTIPLIERS[1]-1:.0%}) - {tps[1]}",
+        f"🥇 TP3 ({TP_MULTIPLIERS[2]-1:.0%}) - {tps[2]}",
+        f"🚀 TP4 ({TP_MULTIPLIERS[3]-1:.0%}) - {tps[3]}"
+    ])
+    return f"""🔥 #{symbol}USDT ({direction}, x20) 🔥
+Entry - {entry_price}
 
-async def get_kline(symbol):
-    try:
-        url = f"https://api.bybit.com/v5/market/kline"
-        params = {"category": "linear", "symbol": symbol, "interval": "1", "limit": 5}
-        resp = await client.get(url, params=params)
-        return resp.json()
-    except Exception as e:
-        print(f"[kline error] {symbol}: {e}")
-        return {}
-
-async def send_alert(symbol, price, direction):
-    msg = (
-        f"🔥 #{symbol} ({direction}, x20) 🔥\n"
-        f"Entry - {price:.4f}\n"
-        f"Take-Profit:\n"
-        f"🥉 TP1: {price * TP_MULTIPLIERS[0]:.4f}\n"
-        f"🥈 TP2: {price * TP_MULTIPLIERS[1]:.4f}\n"
-        f"🥇 TP3: {price * TP_MULTIPLIERS[2]:.4f}\n"
-        f"🚀 TP4: {price * TP_MULTIPLIERS[3]:.4f}"
-    )
-    await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=msg)
+Take-Profit:
+{tp_lines}"""
 
 async def scan_market():
-    bybit_client = get_bybit_client()
-    symbols = await get_perp_symbols(bybit_client)
+    client = get_client()
+    try:
+        tickers = await client.get_tickers(category="linear")
+        usdt_pairs = [t['symbol'] for t in tickers['result']['list'] if "USDT" in t['symbol']]
+    except Exception as e:
+        print(f"Ticker fetch error: {e}")
+        return
 
-    for symbol in symbols:
-        kline_data = await get_kline(symbol)
-        if not kline_data or "result" not in kline_data:
-            continue
-
-        candles = kline_data["result"]["list"]
-        if len(candles) < 2:
-            continue
-
-        prev = candles[-2]
-        curr = candles[-1]
-
-        prev_close = float(prev[4])
-        curr_close = float(curr[4])
-        volume = float(curr[5])
-
-        if curr_close > prev_close * BREAKOUT_THRESHOLD:
-            await send_alert(symbol, curr_close, "Long📈")
-
-async def main():
-    while True:
+    for symbol in usdt_pairs:
         try:
-            await scan_market()
+            kline = await client.get_kline(category="linear", symbol=symbol, interval=1)
+            candles = kline['result']['list']
+            if len(candles) < 2:
+                continue
+
+            prev_close = float(candles[-2][4])
+            last_close = float(candles[-1][4])
+            volume = float(candles[-1][5])
+
+            if last_close > prev_close * BREAKOUT_THRESHOLD:
+                msg = format_alert(symbol, "Buy", last_close)
+                await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=msg)
+                print(f"Long breakout: {symbol}")
+
+            elif last_close < prev_close / BREAKOUT_THRESHOLD:
+                msg = format_alert(symbol, "Sell", last_close)
+                await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=msg)
+                print(f"Short breakout: {symbol}")
+
         except Exception as e:
-            print(f"[main loop error] {e}")
+            print(f"{symbol} error: {e}")
+
+async def run_forever():
+    while True:
+        await scan_market()
         await asyncio.sleep(60)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(run_forever())
+
 
