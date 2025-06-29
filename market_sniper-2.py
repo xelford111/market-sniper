@@ -1,4 +1,3 @@
-
 import asyncio
 import httpx
 import time
@@ -10,15 +9,15 @@ from telegram import Bot
 # --- USER CONFIG ---
 TELEGRAM_BOT_TOKEN = "7939062269:AAFwdMlsADkSe-6sMB0EqPfhQmw0Fn4DRus"
 TELEGRAM_CHANNEL_ID = "-1002674839519"
-PROXY = "http://proxy.scrapeops.io:5353"  # Working public proxy
-API_KEY = "your_bybit_readonly_key"
-API_SECRET = "your_bybit_readonly_secret"
+PROXY = "http://proxy.scrapeops.io:5353"
+API_KEY = "Z8kMq7xx3w2vyd7LC5"  # example: update with your real read-only key
+API_SECRET = "vne9YuFfP2ajhNvdHyaFZFD2xPQWQ9UJAMwt"  # example: update with your real read-only secret
 
 TP_MULTIPLIERS = [1.02, 1.04, 1.06, 1.08]
-BREAKOUT_THRESHOLD = 1.012  # Loosened for more signals
+BREAKOUT_THRESHOLD = 1.012
 VOLUME_SPIKE_MULTIPLIER = 2.0
 SPOOFING_THRESHOLD = 2.0
-CANDLE_INTERVAL = 5  # 5-minute candles
+CANDLE_INTERVAL = 5
 
 # --- INIT TELEGRAM BOT ---
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
@@ -83,8 +82,36 @@ def format_signal(symbol: str, entry: float, direction: str) -> str:
 
 # --- MARKET SCANNER ---
 async def scan_market():
-    markets = session.get_instruments_info(category="linear")["result"]["list"]
-    usdt_pairs = [m["symbol"] for m in markets if "USDT" in m["symbol"]]
-    async with httpx.AsyncClient(proxies={"http://": PROXY, "https://": PROXY}, timeout=15) as client:
-        for symbol in usdt_pairs:
-            df = await get_ohlcv(symbol)
+    try:
+        markets = session.get_instruments_info(category="linear")["result"]["list"]
+        usdt_pairs = [m["symbol"] for m in markets if "USDT" in m["symbol"]]
+        async with httpx.AsyncClient(proxies={"http://": PROXY, "https://": PROXY}, timeout=15) as client:
+            for symbol in usdt_pairs:
+                df = await get_ohlcv(symbol)
+                if df is None or len(df) < 5:
+                    continue
+                last = df.iloc[-1]
+                prev = df.iloc[-2]
+                avg_volume = df["volume"][-20:].mean()
+                if last["close"] > prev["close"] * BREAKOUT_THRESHOLD and last["volume"] > avg_volume * VOLUME_SPIKE_MULTIPLIER:
+                    direction = "Long"
+                    msg = format_signal(symbol, last["close"], direction)
+                    await send_telegram_alert(msg)
+                elif last["close"] < prev["close"] / BREAKOUT_THRESHOLD and last["volume"] > avg_volume * VOLUME_SPIKE_MULTIPLIER:
+                    direction = "Short"
+                    msg = format_signal(symbol, last["close"], direction)
+                    await send_telegram_alert(msg)
+                await detect_spoofing(symbol)
+    except Exception as e:
+        print(f"Market scan error: {e}")
+
+# --- MAIN LOOP ---
+async def main_loop():
+    await send_telegram_alert("🤖 Market Sniper Bot is now LIVE!")
+    while True:
+        await scan_market()
+        await asyncio.sleep(60)  # 1-minute scan frequency
+
+# --- START ---
+if __name__ == "__main__":
+    asyncio.run(main_loop())
