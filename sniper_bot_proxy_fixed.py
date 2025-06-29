@@ -52,8 +52,19 @@ async def send_telegram_alert(symbol, direction, entry_price, signal_strength):
     message += f"\nSignal Strength: {signal_strength}%"
     await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=message)
 
+
 async def scan_market():
-    symbols = [s['symbol'] for s in (await client.get_tickers(category="linear"))['result']['list'] if "USDT" in s['symbol']]
+    async with httpx.AsyncClient(proxies={"http://": PROXY, "https://": PROXY}, timeout=10.0) as client:
+        try:
+            url = "https://api.bybit.com/v5/market/tickers?category=linear"
+            response = await client.get(url)
+            data = response.json()
+            symbols = [s['symbol'] for s in data['result']['list'] if 'USDT' in s['symbol']]
+            print(f"Fetched {len(symbols)} USDT symbols from Bybit.")
+        except Exception as e:
+            print(f"Failed to fetch tickers: {e}")
+            return
+
     for symbol in symbols:
         df = await fetch_5m_candles(symbol)
         if df is None or len(df) < 5:
