@@ -15,22 +15,17 @@ API_KEY = ""
 API_SECRET = ""
 
 TP_MULTIPLIERS = [1.02, 1.04, 1.06, 1.08]
-BREAKOUT_THRESHOLD = 1.01  # Slightly lower for more frequent signals
-VOLUME_SPIKE_MULTIPLIER = 1.8  # More sensitive to volume
+BREAKOUT_THRESHOLD = 1.01  # slightly looser
+VOLUME_SPIKE_MULTIPLIER = 2.0  # slightly looser
 SPOOFING_THRESHOLD = 2.0
 CANDLE_INTERVAL = 5  # 5-minute candles
 
-# --- INIT TELEGRAM BOT ---
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
-
-# --- INIT BYBIT SESSION ---
 session = HTTP(testnet=False, api_key=API_KEY, api_secret=API_SECRET)
 
-# --- SEND TELEGRAM ALERT ---
 async def send_telegram_alert(msg: str):
     await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=msg)
 
-# --- FETCH CANDLE DATA ---
 async def get_ohlcv(symbol: str):
     try:
         klines = session.get_kline(
@@ -50,7 +45,6 @@ async def get_ohlcv(symbol: str):
         print(f"Error fetching OHLCV for {symbol}: {e}")
         return None
 
-# --- CHECK FOR SPOOFING ---
 async def detect_spoofing(symbol: str):
     try:
         ob = session.get_orderbook(symbol=symbol)
@@ -66,14 +60,16 @@ async def detect_spoofing(symbol: str):
     except Exception as e:
         print(f"Spoofing check error for {symbol}: {e}")
 
-# --- FORMAT SIGNAL ---
 def format_signal(symbol: str, entry: float, direction: str) -> str:
     emoji = "📈" if direction == "Long" else "📉"
-    msg = f"🔥 #{symbol}/USDT ({direction} {emoji}, x20) 🔥
+    msg = (
+        f"🔥 #{symbol}/USDT ({direction} {emoji}, x20) 🔥
 "
-    msg += f"Entry - {entry:.4f}
-Take-Profit:
+        f"Entry - {entry:.4f}
 "
+        f"Take-Profit:
+"
+    )
     for i, mult in enumerate(TP_MULTIPLIERS, 1):
         tp = entry * mult if direction == "Long" else entry / mult
         medal = ["🥉", "🥈", "🥇", "🚀"][i-1]
@@ -81,7 +77,6 @@ Take-Profit:
 "
     return msg
 
-# --- SCAN COINS ---
 async def scan_market():
     markets = session.get_instruments_info(category="linear")["result"]["list"]
     usdt_pairs = [m["symbol"] for m in markets if "USDT" in m["symbol"]]
@@ -103,15 +98,14 @@ async def scan_market():
                 await send_telegram_alert(msg)
             await detect_spoofing(symbol)
 
-# --- MAIN LOOP ---
 async def main_loop():
-    if not hasattr(main_loop, "notified"):
-        await send_telegram_alert("🤖 Market Sniper Bot is now LIVE!")
-        main_loop.notified = True
+    sent_startup = False
     while True:
+        if not sent_startup:
+            await send_telegram_alert("🤖 Market Sniper Bot is now LIVE!")
+            sent_startup = True
         await scan_market()
         await asyncio.sleep(CANDLE_INTERVAL * 60)
 
-# --- START ---
 if __name__ == "__main__":
     asyncio.run(main_loop())
