@@ -72,7 +72,8 @@ async def scan_market():
             candles = await fetch_candles(symbol)
             if candles and detect_breakout(candles) and is_volume_spike(candles):
                 close_price = float(candles[-1][4])
-                msg = f"🔥 *#{symbol}/USDT* Detected!
+               msg = f"🔥 #{symbol}/USDT Detected!"
+
 "                       f"Breakout with strong volume at *{close_price:.4f}* 🔍
 
 "                       f"Watch for continuation or fade."
