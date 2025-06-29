@@ -1,4 +1,3 @@
-
 import asyncio
 import httpx
 import time
@@ -69,16 +68,12 @@ async def detect_spoofing(symbol: str):
 # --- FORMAT SIGNAL ---
 def format_signal(symbol: str, entry: float, direction: str) -> str:
     emoji = "📈" if direction == "Long" else "📉"
-    msg = f"🔥 #{symbol}/USDT ({direction} {emoji}, x20) 🔥
-"
-    msg += f"Entry - {entry:.4f}
-Take-Profit:
-"
+    msg = f"🔥 #{symbol}/USDT ({direction} {emoji}, x20) 🔥\n"
+    msg += f"Entry - {entry:.4f}\nTake-Profit:\n"
     for i, mult in enumerate(TP_MULTIPLIERS, 1):
         tp = entry * mult if direction == "Long" else entry / mult
         medal = ["🥉", "🥈", "🥇", "🚀"][i-1]
-        msg += f"{medal} TP{i} ({int(mult*100-100)}%) = {tp:.4f}
-"
+        msg += f"{medal} TP{i} ({int(mult*100-100)}%) = {tp:.4f}\n"
     return msg
 
 # --- SCAN COINS ---
