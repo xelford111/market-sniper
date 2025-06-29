@@ -1,3 +1,4 @@
+
 import asyncio
 import httpx
 import time
@@ -14,8 +15,8 @@ API_KEY = ""
 API_SECRET = ""
 
 TP_MULTIPLIERS = [1.02, 1.04, 1.06, 1.08]
-BREAKOUT_THRESHOLD = 1.015
-VOLUME_SPIKE_MULTIPLIER = 2.5
+BREAKOUT_THRESHOLD = 1.01  # Slightly lower for more frequent signals
+VOLUME_SPIKE_MULTIPLIER = 1.8  # More sensitive to volume
 SPOOFING_THRESHOLD = 2.0
 CANDLE_INTERVAL = 5  # 5-minute candles
 
@@ -68,12 +69,16 @@ async def detect_spoofing(symbol: str):
 # --- FORMAT SIGNAL ---
 def format_signal(symbol: str, entry: float, direction: str) -> str:
     emoji = "📈" if direction == "Long" else "📉"
-    msg = f"🔥 #{symbol}/USDT ({direction} {emoji}, x20) 🔥\n"
-    msg += f"Entry - {entry:.4f}\nTake-Profit:\n"
+    msg = f"🔥 #{symbol}/USDT ({direction} {emoji}, x20) 🔥
+"
+    msg += f"Entry - {entry:.4f}
+Take-Profit:
+"
     for i, mult in enumerate(TP_MULTIPLIERS, 1):
         tp = entry * mult if direction == "Long" else entry / mult
         medal = ["🥉", "🥈", "🥇", "🚀"][i-1]
-        msg += f"{medal} TP{i} ({int(mult*100-100)}%) = {tp:.4f}\n"
+        msg += f"{medal} TP{i} ({int(mult*100-100)}%) = {tp:.4f}
+"
     return msg
 
 # --- SCAN COINS ---
@@ -100,7 +105,9 @@ async def scan_market():
 
 # --- MAIN LOOP ---
 async def main_loop():
-    await send_telegram_alert("🤖 Market Sniper Bot is now LIVE!")
+    if not hasattr(main_loop, "notified"):
+        await send_telegram_alert("🤖 Market Sniper Bot is now LIVE!")
+        main_loop.notified = True
     while True:
         await scan_market()
         await asyncio.sleep(CANDLE_INTERVAL * 60)
