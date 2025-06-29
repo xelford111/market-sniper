@@ -19,24 +19,8 @@ VOLUME_SPIKE_RATIO = 1.3    # Lowered from 1.5 to 1.3
 
 # --- INITIALIZE ---
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
-import ssl
-from httpx import AsyncClient, Proxy, Timeout, Limits, create_ssl_context
-from pybit.unified_trading import HTTP as PybitHTTP
-
 def get_client():
-    transport = httpx.AsyncHTTPTransport(
-        proxy=PROXY,
-        verify=True,
-        retries=2,
-    )
-    client = PybitHTTP(
-        api_key=API_KEY,
-        api_secret=API_SECRET,
-        testnet=False,
-        httpx_client=httpx.Client(transport=transport)
-    )
-    return client
-
+    return HTTP(api_key=API_KEY, api_secret=API_SECRET, testnet=False)
 
 client = get_client()
 
@@ -107,4 +91,3 @@ if __name__ == "__main__":
 # --- MANUAL TEST (Optional) ---
 # Uncomment this to send a test signal on script start
 asyncio.run(send_telegram_alert("BTCUSDT", "Long", 62000.0, 92))
-
