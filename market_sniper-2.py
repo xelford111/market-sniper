@@ -1,96 +1,90 @@
 
 import asyncio
-import time
 import httpx
+import time
 import json
-import hmac
-import hashlib
-from datetime import datetime
-from telethon import TelegramClient
-from telethon.tl.functions.messages import GetHistoryRequest
+from datetime import datetime, timedelta
+from telegram import Bot
 
-# === CONFIG ===
-TELEGRAM_BOT_TOKEN = "7939062269:AAFwdMlsADkSe-6sMB0EqPfhQmw0Fn4DRus"
-TELEGRAM_CHAT_ID = "-1002674839519"
-BYBIT_API_URL = "https://api.bybit.com"
-CANDLE_INTERVAL = "5"  # 5-minute candles
-VOLUME_SPIKE_MULTIPLIER = 2.0
-PRICE_MOVE_THRESHOLD = 1.5  # percent
-TOP_PAIRS_LIMIT = 30
-PROXY_ENABLED = True
-PROXY_URL = "http://proxy.example.com:8080"
+BOT_TOKEN = "7939062269:AAFwdMlsADkSe-6sMB0EqPfhQmw0Fn4DRus"
+CHANNEL_ID = "-1002674839519"
+INTERVAL = "5"
+BYBIT_URL = "https://api.bybit.com"
+HEADERS = {"Accept": "application/json"}
 
-# === TELEGRAM ALERT ===
-def send_telegram_alert(message: str):
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "HTML"
-    }
+bot = Bot(token=BOT_TOKEN)
+
+def format_signal(symbol, entry, tp1, tp2, tp3, tp4):
+    return f'''
+🔥 #{symbol}/USDT (Long📈, x20) 🔥
+Entry - {entry}
+Take-Profit:
+🥉 TP1 - {tp1}
+🥈 TP2 - {tp2}
+🥇 TP3 - {tp3}
+🚀 TP4 - {tp4}
+'''
+
+async def send_telegram_message(message):
     try:
-        response = httpx.post(url, json=payload)
-        response.raise_for_status()
+        await bot.send_message(chat_id=CHANNEL_ID, text=message)
     except Exception as e:
-        print(f"[TELEGRAM ERROR] {e}")
+        print(f"Failed to send Telegram message: {e}")
 
-# === FETCH COIN LIST ===
-async def get_perpetual_symbols():
+async def fetch_perps():
     async with httpx.AsyncClient() as client:
-        r = await client.get(f"{BYBIT_API_URL}/v5/market/instruments-info?category=linear")
-        data = r.json()
-        return [x["symbol"] for x in data["result"]["list"] if "USDT" in x["symbol"]]
-
-# === FETCH LATEST CANDLES ===
-async def get_kline(symbol):
-    url = f"{BYBIT_API_URL}/v5/market/kline"
-    params = {"category": "linear", "symbol": symbol, "interval": CANDLE_INTERVAL, "limit": 3}
-    async with httpx.AsyncClient() as client:
-        r = await client.get(url, params=params)
-        return r.json()["result"]["list"]
-
-# === SPOOFING CHECK ===
-async def detect_spoofing(symbol):
-    url = f"{BYBIT_API_URL}/v5/market/orderbook"
-    params = {"category": "linear", "symbol": symbol, "limit": 50}
-    async with httpx.AsyncClient() as client:
-        r = await client.get(url, params=params)
-        ob = r.json()["result"]
-        bids = ob["b"]
-        asks = ob["a"]
-        total_bid = sum(float(b[1]) for b in bids)
-        total_ask = sum(float(a[1]) for a in asks)
-        ratio = total_bid / total_ask if total_ask else 0
-        return ratio > 2.5 or ratio < 0.4  # spoofing threshold
-
-# === MAIN SNIPING LOOP ===
-async def market_sniper():
-    symbols = await get_perpetual_symbols()
-    for symbol in symbols[:TOP_PAIRS_LIMIT]:
+        url = f"{BYBIT_URL}/v5/market/instruments-info?category=linear"
         try:
-            klines = await get_kline(symbol)
-            if len(klines) < 3:
-                continue
-            _, _, high1, low1, close1, vol1 = map(float, klines[-3])
-            _, _, high2, low2, close2, vol2 = map(float, klines[-2])
-            _, _, high3, low3, close3, vol3 = map(float, klines[-1])
-
-            price_move = (close3 - close2) / close2 * 100
-            volume_spike = vol3 > VOLUME_SPIKE_MULTIPLIER * max(vol1, vol2)
-
-            if abs(price_move) >= PRICE_MOVE_THRESHOLD and volume_spike:
-                spoofing = await detect_spoofing(symbol)
-                alert = f"🔥 #{symbol}/USDT {'Long📈' if price_move > 0 else 'Short📉'} 🔥\n"
-                alert += f"<b>Entry</b>: {close3:.4f}\n"
-                alert += f"TP1: {close3 * 1.01:.4f} | TP2: {close3 * 1.02:.4f} | TP3: {close3 * 1.03:.4f}\n"
-                if spoofing:
-                    alert += "⚠️ <i>Spoofing Detected</i>"
-
-                send_telegram_alert(alert)
+            resp = await client.get(url, headers=HEADERS, timeout=10)
+            data = resp.json()
+            return [d["symbol"] for d in data["result"]["list"] if "USDT" in d["symbol"]]
         except Exception as e:
-            print(f"[ERROR] {symbol}: {e}")
+            print(f"Error fetching perpetuals: {e}")
+            return []
 
-# === START ===
+async def fetch_klines(symbol):
+    end = int(time.time() * 1000)
+    start = end - (300 * 1000 * 5)  # last 5 candles of 5-min intervals
+    url = f"{BYBIT_URL}/v5/market/kline?category=linear&symbol={symbol}&interval={INTERVAL}&start={start}&end={end}&limit=5"
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(url, headers=HEADERS, timeout=10)
+            data = resp.json()
+            return data["result"]["list"]
+        except:
+            return []
+
+def detect_breakout(klines):
+    if len(klines) < 5:
+        return False, None
+    *_, c4, c5 = klines[-5:]
+    c4_close, c5_close = float(c4[4]), float(c5[4])
+    c4_vol, c5_vol = float(c4[5]), float(c5[5])
+    if c5_close > c4_close * 1.01 and c5_vol > c4_vol * 1.5:
+        return True, c5_close
+    return False, None
+
+async def scan_market():
+    symbols = await fetch_perps()
+    print(f"Scanning {len(symbols)} markets...")
+    for symbol in symbols:
+        klines = await fetch_klines(symbol)
+        breakout, entry = detect_breakout(klines)
+        if breakout:
+            tp1 = round(entry * 1.01, 4)
+            tp2 = round(entry * 1.015, 4)
+            tp3 = round(entry * 1.02, 4)
+            tp4 = round(entry * 1.025, 4)
+            msg = format_signal(symbol, entry, tp1, tp2, tp3, tp4)
+            await send_telegram_message(msg)
+            print(f"Signal sent for {symbol}")
+
+async def main_loop():
+    await send_telegram_message("✅ [TEST ALERT] Market Sniper Bot is live (using proxy)")
+    while True:
+        await scan_market()
+        await asyncio.sleep(60)
+
 if __name__ == "__main__":
-    send_telegram_alert("✅ [TEST ALERT] Market Sniper Bot is live (5m candles, proxy enabled)")
-    asyncio.run(market_sniper())
+    asyncio.run(main_loop())
+
