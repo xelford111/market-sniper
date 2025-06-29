@@ -6,61 +6,85 @@ import pandas as pd
 from pybit.unified_trading import HTTP
 from telegram import Bot
 
-# --- USER CONFIG ---
+# === USER CONFIG ===
 TELEGRAM_BOT_TOKEN = "7939062269:AAFwdMlsADkSe-6sMB0EqPfhQmw0Fn4DRus"
 TELEGRAM_CHANNEL_ID = "-1002674839519"
-API_KEY = "1xnaxI23Llyz9W0y6B"
-API_SECRET = "yN4KqEpgVWkm80USpJt7irHbL95wtdq07qC6"
+API_KEY = "AAGZrcM0P7PXw7ox5nEkHvvRD5p1kXYSWJc"  # Your actual Bybit key
+API_SECRET = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"  # Replace with real secret
+
 TP_MULTIPLIERS = [1.02, 1.04, 1.06, 1.08]
 BREAKOUT_THRESHOLD = 1.012
+VOLUME_THRESHOLD = 1.3
 CHECK_INTERVAL = 60  # seconds
+CANDLE_INTERVAL = "5"
 
+client = HTTP(api_key=API_KEY, api_secret=API_SECRET)
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
-# ✅ Initialize Bybit client (no proxies)
-def get_client():
-    return HTTP(
-        api_key=API_KEY,
-        api_secret=API_SECRET,
-        testnet=False
+# === Start message ===
+async def send_startup_message():
+    await bot.send_message(
+        chat_id=TELEGRAM_CHANNEL_ID,
+        text="✅ Market Sniper Bot is now LIVE and scanning!"
     )
 
-client = get_client()
+# === Get all USDT symbols ===
+async def fetch_symbols():
+    response = client.get("/v5/market/tickers", params={"category": "linear"})
+    return [item["symbol"] for item in response["result"]["list"] if item["symbol"].endswith("USDT")]
 
-# 🔥 Format breakout/dump signal
-def format_alert(symbol, entry_price, direction):
-    dir_label = "Long📈" if direction == "long" else "Short📉"
-    tps = [round(entry_price * tp, 5) if direction == "long" else round(entry_price / tp, 5) for tp in TP_MULTIPLIERS]
-    tp_msg = "\n".join([
-        f"🥉 TP1: {tps[0]}\n🥈 TP2: {tps[1]}\n🥇 TP3: {tps[2]}\n🚀 TP4: {tps[3]}"
-    ])
-    return f"🔥 #{symbol}/USDT ({dir_label}, x20) 🔥\nEntry - {entry_price}\nTake-Profit:\n{tp_msg}"
+# === Get latest 5-minute candles ===
+async def fetch_kline(symbol):
+    response = client.get("/v5/market/kline", params={
+        "category": "linear",
+        "symbol": symbol,
+        "interval": CANDLE_INTERVAL,
+        "limit": 4
+    })
+    if "result" not in response or "list" not in response["result"]:
+        return None
+    df = pd.DataFrame(response["result"]["list"], columns=[
+        "timestamp", "open", "high", "low", "close", "volume", "turnover"])
+    df[["open", "close", "volume"]] = df[["open", "close", "volume"]].astype(float)
+    return df
 
-# ✅ Main scanning logic
-async def check_market():
-    # Send test signal on first run
-    bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text="✅ Market Sniper Bot is now LIVE and scanning!")
+# === Format message ===
+def format_signal(symbol, direction, entry):
+    return f"""🔥 #{symbol}/USDT ({'Long📈' if direction == 'long' else 'Short📉'}, x20) 🔥
+Entry - {entry:.4f}
+Take-Profit:
+🥉 TP1 ({TP_MULTIPLIERS[0]}x)
+🥈 TP2 ({TP_MULTIPLIERS[1]}x)
+🥇 TP3 ({TP_MULTIPLIERS[2]}x)
+🚀 TP4 ({TP_MULTIPLIERS[3]}x)
+"""
 
+# === Main scanner ===
+async def scan():
+    await send_startup_message()
     while True:
         try:
-            tickers = client.get_tickers(category="linear")["result"]["list"]
-            for ticker in tickers:
-                symbol = ticker["symbol"]
-                if "USDT" not in symbol:
+            symbols = await fetch_symbols()
+            for symbol in symbols:
+                df = await fetch_kline(symbol)
+                if df is None or len(df) < 4:
                     continue
-                price_change = float(ticker["price24hPcnt"])
-                last_price = float(ticker["lastPrice"])
-                if price_change >= (BREAKOUT_THRESHOLD - 1):
-                    alert = format_alert(symbol, last_price, "long")
-                    bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=alert)
-                elif price_change <= -(BREAKOUT_THRESHOLD - 1):
-                    alert = format_alert(symbol, last_price, "short")
-                    bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=alert)
+
+                latest = df.iloc[-1]
+                prev_3 = df.iloc[-4:-1]
+                avg_volume = prev_3["volume"].mean()
+                price_change = (latest["close"] - latest["open"]) / latest["open"]
+                volume_spike = latest["volume"] > avg_volume * VOLUME_THRESHOLD
+
+                if abs(price_change) > BREAKOUT_THRESHOLD and volume_spike:
+                    direction = "long" if price_change > 0 else "short"
+                    msg = format_signal(symbol, direction, latest["close"])
+                    await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=msg)
         except Exception as e:
-            print(f"Error: {e}")
+            print("Error during scan:", e)
         await asyncio.sleep(CHECK_INTERVAL)
 
-# ✅ Run the bot
+# === Run ===
 if __name__ == "__main__":
-    asyncio.run(check_market())
+    asyncio.run(scan())
 
