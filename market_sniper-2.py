@@ -1,109 +1,115 @@
 
 import asyncio
-import time
-import json
 import httpx
-from datetime import datetime, timedelta
+import time
+from datetime import datetime
+import pandas as pd
+from pybit.unified_trading import HTTP
+from telegram import Bot
 
-BYBIT_API_URL = "https://api.bybit.com/v5/market/kline"
-ORDERBOOK_API = "https://api.bybit.com/v5/market/orderbook"
-TELEGRAM_TOKEN = "7939062269:AAFwdMlsADkSe-6sMB0EqPfhQmw0Fn4DRus"
-TELEGRAM_CHAT_ID = "-1002217394276"  # Your Telegram Channel ID
+# --- USER CONFIG ---
+TELEGRAM_BOT_TOKEN = "7939062269:AAFwdMlsADkSe-6sMB0EqPfhQmw0Fn4DRus"
+TELEGRAM_CHANNEL_ID = "-1002674839519"
+PROXY = "http://proxy.scrapeops.io:5353"
+API_KEY = ""
+API_SECRET = ""
 
-HEADERS = {"Content-Type": "application/json"}
-CANDLE_INTERVAL = "5"  # 5-minute candles
-LIMIT = 200
-MIN_VOL = 100000  # Adjust this based on market conditions
-SIGNIFICANT_WALL_THRESHOLD = 150000  # Size of wall to trigger signal
-WHALE_ORDER_SIZE = 80000  # Whale threshold
+TP_MULTIPLIERS = [1.02, 1.04, 1.06, 1.08]
+BREAKOUT_THRESHOLD = 1.015
+VOLUME_SPIKE_MULTIPLIER = 2.5
+SPOOFING_THRESHOLD = 2.0
+CANDLE_INTERVAL = 5  # 5-minute candles
 
-PROXY = "http://quickproxy.io:8080"
+# --- INIT TELEGRAM BOT ---
+bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
-async def send_telegram_alert(message: str):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    async with httpx.AsyncClient(proxies=PROXY) as client:
-        try:
-            await client.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message})
-        except Exception as e:
-            print("Telegram Error:", e)
+# --- INIT BYBIT SESSION ---
+session = HTTP(testnet=False, api_key=API_KEY, api_secret=API_SECRET)
 
-async def fetch_all_perp_symbols():
-    url = "https://api.bybit.com/v5/market/instruments-info?category=linear"
-    async with httpx.AsyncClient(proxies=PROXY) as client:
-        r = await client.get(url)
-        data = r.json()
-        return [s['symbol'] for s in data['result']['list'] if s['symbol'].endswith("USDT")]
+# --- SEND TELEGRAM ALERT ---
+async def send_telegram_alert(msg: str):
+    await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=msg)
 
-async def fetch_kline(symbol):
-    url = f"{BYBIT_API_URL}?category=linear&symbol={symbol}&interval={CANDLE_INTERVAL}&limit=2"
-    async with httpx.AsyncClient(proxies=PROXY) as client:
-        r = await client.get(url)
-        candles = r.json()["result"]["list"]
-        return candles
-
-async def fetch_orderbook(symbol):
-    url = f"{ORDERBOOK_API}?category=linear&symbol={symbol}"
-    async with httpx.AsyncClient(proxies=PROXY) as client:
-        r = await client.get(url)
-        return r.json()["result"]
-
-def detect_spoofing(orderbook):
-    bids = orderbook["b"]
-    asks = orderbook["a"]
-    if float(bids[0][1]) > SIGNIFICANT_WALL_THRESHOLD and float(bids[0][1]) > 1.5 * float(asks[0][1]):
-        return "Buy wall spoofing suspected"
-    if float(asks[0][1]) > SIGNIFICANT_WALL_THRESHOLD and float(asks[0][1]) > 1.5 * float(bids[0][1]):
-        return "Sell wall spoofing suspected"
-    return None
-
-async def analyze_symbol(symbol):
+# --- FETCH CANDLE DATA ---
+async def get_ohlcv(symbol: str):
     try:
-        candles = await fetch_kline(symbol)
-        latest, previous = candles[-1], candles[-2]
-
-        latest_close = float(latest[4])
-        previous_close = float(previous[4])
-        latest_vol = float(latest[5])
-
-        price_change = (latest_close - previous_close) / previous_close
-
-        if abs(price_change) > 0.02 and latest_vol > MIN_VOL:
-            orderbook = await fetch_orderbook(symbol)
-            spoof_alert = detect_spoofing(orderbook)
-
-            if spoof_alert:
-                alert_msg = f"⚠️ Spoofing Detected on {symbol}
-{spoof_alert}
-Price: {latest_close}"
-                await send_telegram_alert(alert_msg)
-
-            signal_type = "Long📈" if price_change > 0 else "Short📉"
-            entry = latest_close
-            tp1 = round(entry * (1 + 0.01 * (1 if price_change > 0 else -1)), 6)
-            tp2 = round(entry * (1 + 0.015 * (1 if price_change > 0 else -1)), 6)
-            tp3 = round(entry * (1 + 0.02 * (1 if price_change > 0 else -1)), 6)
-            tp4 = round(entry * (1 + 0.03 * (1 if price_change > 0 else -1)), 6)
-
-            msg = f"🔥 #{symbol} (x20 {signal_type}) 🔥
-Entry - {entry}
-Take-Profit:
-🥉 TP1 {tp1}
-🥈 TP2 {tp2}
-🥇 TP3 {tp3}
-🚀 TP4 {tp4}"
-            await send_telegram_alert(msg)
-
+        klines = session.get_kline(
+            category="linear",
+            symbol=symbol,
+            interval=str(CANDLE_INTERVAL),
+            limit=50
+        )
+        data = klines["result"]["list"]
+        df = pd.DataFrame(data, columns=[
+            "timestamp", "open", "high", "low", "close", "volume", "_", "_"])
+        df = df[["timestamp", "open", "high", "low", "close", "volume"]]
+        df[["open", "high", "low", "close", "volume"]] = df[["open", "high", "low", "close", "volume"]].astype(float)
+        df["timestamp"] = pd.to_datetime(df["timestamp"], unit='ms')
+        return df
     except Exception as e:
-        print(f"Error analyzing {symbol}:", e)
+        print(f"Error fetching OHLCV for {symbol}: {e}")
+        return None
 
+# --- CHECK FOR SPOOFING ---
+async def detect_spoofing(symbol: str):
+    try:
+        ob = session.get_orderbook(symbol=symbol)
+        bids = ob["result"]["b"]
+        asks = ob["result"]["a"]
+        top_bid = float(bids[0][1])
+        top_ask = float(asks[0][1])
+        deeper_bid = float(bids[10][1])
+        deeper_ask = float(asks[10][1])
+        if top_bid / deeper_bid > SPOOFING_THRESHOLD or top_ask / deeper_ask > SPOOFING_THRESHOLD:
+            alert_msg = f"⚠️ Spoofing Detected on {symbol}"
+            await send_telegram_alert(alert_msg)
+    except Exception as e:
+        print(f"Spoofing check error for {symbol}: {e}")
+
+# --- FORMAT SIGNAL ---
+def format_signal(symbol: str, entry: float, direction: str) -> str:
+    emoji = "📈" if direction == "Long" else "📉"
+    msg = f"🔥 #{symbol}/USDT ({direction} {emoji}, x20) 🔥
+"
+    msg += f"Entry - {entry:.4f}
+Take-Profit:
+"
+    for i, mult in enumerate(TP_MULTIPLIERS, 1):
+        tp = entry * mult if direction == "Long" else entry / mult
+        medal = ["🥉", "🥈", "🥇", "🚀"][i-1]
+        msg += f"{medal} TP{i} ({int(mult*100-100)}%) = {tp:.4f}
+"
+    return msg
+
+# --- SCAN COINS ---
+async def scan_market():
+    markets = session.get_instruments_info(category="linear")["result"]["list"]
+    usdt_pairs = [m["symbol"] for m in markets if "USDT" in m["symbol"]]
+    async with httpx.AsyncClient(proxies={"http://": PROXY, "https://": PROXY}, timeout=10) as client:
+        for symbol in usdt_pairs:
+            df = await get_ohlcv(symbol)
+            if df is None or len(df) < 5:
+                continue
+            last = df.iloc[-1]
+            prev = df.iloc[-2]
+            avg_volume = df["volume"][-20:].mean()
+            if last["close"] > prev["close"] * BREAKOUT_THRESHOLD and last["volume"] > avg_volume * VOLUME_SPIKE_MULTIPLIER:
+                direction = "Long"
+                msg = format_signal(symbol, last["close"], direction)
+                await send_telegram_alert(msg)
+            elif last["close"] < prev["close"] / BREAKOUT_THRESHOLD and last["volume"] > avg_volume * VOLUME_SPIKE_MULTIPLIER:
+                direction = "Short"
+                msg = format_signal(symbol, last["close"], direction)
+                await send_telegram_alert(msg)
+            await detect_spoofing(symbol)
+
+# --- MAIN LOOP ---
 async def main_loop():
-    symbols = await fetch_all_perp_symbols()
-    await send_telegram_alert("✅ Bot is live and scanning 5m Bybit perpetuals...")
-
+    await send_telegram_alert("🤖 Market Sniper Bot is now LIVE!")
     while True:
-        tasks = [analyze_symbol(symbol) for symbol in symbols]
-        await asyncio.gather(*tasks)
-        await asyncio.sleep(300)  # 5 minutes
+        await scan_market()
+        await asyncio.sleep(CANDLE_INTERVAL * 60)
 
+# --- START ---
 if __name__ == "__main__":
     asyncio.run(main_loop())
