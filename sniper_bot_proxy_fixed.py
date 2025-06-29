@@ -9,15 +9,15 @@ from telegram import Bot
 # --- USER CONFIG ---
 TELEGRAM_BOT_TOKEN = "7939062269:AAFwdMlsADkSe-6sMB0EqPfhQmw0Fn4DRus"
 TELEGRAM_CHANNEL_ID = "-1002674839519"
-API_KEY = "your_bybit_readonly_key"
-API_SECRET = "your_bybit_readonly_secret"
-
+API_KEY = "1xnaxI23Llyz9W0y6B"
+API_SECRET = "yN4KqEpgVWkm80USpJt7irHbL95wtdq07qC6"
 TP_MULTIPLIERS = [1.02, 1.04, 1.06, 1.08]
 BREAKOUT_THRESHOLD = 1.012
 CHECK_INTERVAL = 60  # seconds
 
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
+# ✅ Initialize Bybit client (no proxies)
 def get_client():
     return HTTP(
         api_key=API_KEY,
@@ -27,6 +27,7 @@ def get_client():
 
 client = get_client()
 
+# 🔥 Format breakout/dump signal
 def format_alert(symbol, entry_price, direction):
     dir_label = "Long📈" if direction == "long" else "Short📉"
     tps = [round(entry_price * tp, 5) if direction == "long" else round(entry_price / tp, 5) for tp in TP_MULTIPLIERS]
@@ -35,7 +36,11 @@ def format_alert(symbol, entry_price, direction):
     ])
     return f"🔥 #{symbol}/USDT ({dir_label}, x20) 🔥\nEntry - {entry_price}\nTake-Profit:\n{tp_msg}"
 
+# ✅ Main scanning logic
 async def check_market():
+    # Send test signal on first run
+    bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text="✅ Market Sniper Bot is now LIVE and scanning!")
+
     while True:
         try:
             tickers = client.get_tickers(category="linear")["result"]["list"]
@@ -55,6 +60,7 @@ async def check_market():
             print(f"Error: {e}")
         await asyncio.sleep(CHECK_INTERVAL)
 
+# ✅ Run the bot
 if __name__ == "__main__":
     asyncio.run(check_market())
 
