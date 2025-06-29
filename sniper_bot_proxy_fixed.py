@@ -20,7 +20,16 @@ VOLUME_SPIKE_RATIO = 1.3    # Lowered from 1.5 to 1.3
 # --- INITIALIZE ---
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 def get_client():
-    return HTTP(api_key=API_KEY, api_secret=API_SECRET, testnet=False, proxies={"http": PROXY, "https": PROXY})
+    from pybit.unified_trading import HTTP
+    import httpx
+    transport = httpx.HTTPTransport(proxy="http://proxy.scrapeops.io:5353")
+    session = httpx.Client(transport=transport)
+    return HTTP(
+        api_key=API_KEY,
+        api_secret=API_SECRET,
+        testnet=False,
+        session=session
+    )
 
 client = get_client()
 
