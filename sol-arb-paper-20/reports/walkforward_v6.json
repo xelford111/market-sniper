@@ -1,0 +1,332 @@
+{
+  "status": "UNVERIFIED CANDLE-ONLY HISTORICAL REPLAY - NO EXECUTABLE ORDER BOOKS",
+  "window_start_utc": "2026-11-02T23:58:00+00:00",
+  "window_end_utc": "2026-11-03T05:58:00+00:00",
+  "training_hours": 4.0,
+  "validation_hours": 2.0,
+  "coins_requested": 50,
+  "coins_covered_in_2plus_venues": 48,
+  "venue_coin_feeds": {
+    "okx": 47,
+    "bitget": 47,
+    "gate": 48,
+    "mexc": 46,
+    "phemex": 32
+  },
+  "venue_errors": {
+    "okx": {
+      "fatal": null,
+      "sample": []
+    },
+    "bitget": {
+      "fatal": null,
+      "sample": []
+    },
+    "gate": {
+      "fatal": null,
+      "sample": []
+    },
+    "mexc": {
+      "fatal": null,
+      "sample": []
+    },
+    "phemex": {
+      "fatal": null,
+      "sample": []
+    }
+  },
+  "wallets": 5,
+  "initial_equity_usdt": 5000,
+  "no_future_bar_signal_leakage": true,
+  "training_scenarios": 72,
+  "train_top5": [
+    {
+      "params": {
+        "min_gap_pct": 1.0,
+        "leverage": 20,
+        "wallet_allocation": 0.7,
+        "persistent_two_closes": false
+      },
+      "events": [
+        {
+          "coin": "SNX",
+          "long": "gate",
+          "short": "bitget",
+          "entry_gap_pct": 1.0387,
+          "open_utc": "2026-11-03T03:02:00+00:00",
+          "close_utc": "2026-11-03T03:03:00+00:00",
+          "leverage": 20,
+          "margin_per_leg": 681.41,
+          "net_usdt": 41.8509,
+          "reason": "NET_TAKE_PROFIT"
+        }
+      ],
+      "closed": 1,
+      "winners": 1,
+      "realized_pnl_usdt": 41.85,
+      "marked_equity_usdt": 5041.85,
+      "estimated_return_pct": 0.837,
+      "open_at_end": 0,
+      "counts": {
+        "raw_signals": 1,
+        "opened": 1,
+        "NET_TAKE_PROFIT": 1
+      },
+      "wallets": {
+        "okx": 1000.0,
+        "bitget": 1071.68,
+        "gate": 970.17,
+        "mexc": 1000.0,
+        "phemex": 1000.0
+      },
+      "start_utc": "2026-11-02T23:58:00+00:00",
+      "end_utc_exclusive": "2026-11-03T03:58:00+00:00"
+    },
+    {
+      "params": {
+        "min_gap_pct": 1.0,
+        "leverage": 10,
+        "wallet_allocation": 0.7,
+        "persistent_two_closes": false
+      },
+      "events": [
+        {
+          "coin": "SNX",
+          "long": "gate",
+          "short": "bitget",
+          "entry_gap_pct": 1.0387,
+          "open_utc": "2026-11-03T03:02:00+00:00",
+          "close_utc": "2026-11-03T03:03:00+00:00",
+          "leverage": 10,
+          "margin_per_leg": 688.82,
+          "net_usdt": 21.1531,
+          "reason": "NET_TAKE_PROFIT"
+        }
+      ],
+      "closed": 1,
+      "winners": 1,
+      "realized_pnl_usdt": 21.15,
+      "marked_equity_usdt": 5021.15,
+      "estimated_return_pct": 0.423,
+      "open_at_end": 0,
+      "counts": {
+        "raw_signals": 1,
+        "opened": 1,
+        "NET_TAKE_PROFIT": 1
+      },
+      "wallets": {
+        "okx": 1000.0,
+        "bitget": 1036.23,
+        "gate": 984.92,
+        "mexc": 1000.0,
+        "phemex": 1000.0
+      },
+      "start_utc": "2026-11-02T23:58:00+00:00",
+      "end_utc_exclusive": "2026-11-03T03:58:00+00:00"
+    },
+    {
+      "params": {
+        "min_gap_pct": 1.0,
+        "leverage": 20,
+        "wallet_allocation": 0.35,
+        "persistent_two_closes": false
+      },
+      "events": [
+        {
+          "coin": "SNX",
+          "long": "gate",
+          "short": "bitget",
+          "entry_gap_pct": 1.0387,
+          "open_utc": "2026-11-03T03:02:00+00:00",
+          "close_utc": "2026-11-03T03:03:00+00:00",
+          "leverage": 20,
+          "margin_per_leg": 340.7,
+          "net_usdt": 20.9254,
+          "reason": "NET_TAKE_PROFIT"
+        }
+      ],
+      "closed": 1,
+      "winners": 1,
+      "realized_pnl_usdt": 20.93,
+      "marked_equity_usdt": 5020.93,
+      "estimated_return_pct": 0.419,
+      "open_at_end": 0,
+      "counts": {
+        "raw_signals": 1,
+        "opened": 1,
+        "NET_TAKE_PROFIT": 1
+      },
+      "wallets": {
+        "okx": 1000.0,
+        "bitget": 1035.84,
+        "gate": 985.09,
+        "mexc": 1000.0,
+        "phemex": 1000.0
+      },
+      "start_utc": "2026-11-02T23:58:00+00:00",
+      "end_utc_exclusive": "2026-11-03T03:58:00+00:00"
+    },
+    {
+      "params": {
+        "min_gap_pct": 1.0,
+        "leverage": 5,
+        "wallet_allocation": 0.7,
+        "persistent_two_closes": false
+      },
+      "events": [
+        {
+          "coin": "SNX",
+          "long": "gate",
+          "short": "bitget",
+          "entry_gap_pct": 1.0387,
+          "open_utc": "2026-11-03T03:02:00+00:00",
+          "close_utc": "2026-11-03T03:03:00+00:00",
+          "leverage": 5,
+          "margin_per_leg": 692.59,
+          "net_usdt": 10.6344,
+          "reason": "NET_TAKE_PROFIT"
+        }
+      ],
+      "closed": 1,
+      "winners": 1,
+      "realized_pnl_usdt": 10.63,
+      "marked_equity_usdt": 5010.63,
+      "estimated_return_pct": 0.213,
+      "open_at_end": 0,
+      "counts": {
+        "raw_signals": 1,
+        "opened": 1,
+        "NET_TAKE_PROFIT": 1
+      },
+      "wallets": {
+        "okx": 1000.0,
+        "bitget": 1018.21,
+        "gate": 992.42,
+        "mexc": 1000.0,
+        "phemex": 1000.0
+      },
+      "start_utc": "2026-11-02T23:58:00+00:00",
+      "end_utc_exclusive": "2026-11-03T03:58:00+00:00"
+    },
+    {
+      "params": {
+        "min_gap_pct": 1.0,
+        "leverage": 10,
+        "wallet_allocation": 0.35,
+        "persistent_two_closes": false
+      },
+      "events": [
+        {
+          "coin": "SNX",
+          "long": "gate",
+          "short": "bitget",
+          "entry_gap_pct": 1.0387,
+          "open_utc": "2026-11-03T03:02:00+00:00",
+          "close_utc": "2026-11-03T03:03:00+00:00",
+          "leverage": 10,
+          "margin_per_leg": 344.41,
+          "net_usdt": 10.5766,
+          "reason": "NET_TAKE_PROFIT"
+        }
+      ],
+      "closed": 1,
+      "winners": 1,
+      "realized_pnl_usdt": 10.58,
+      "marked_equity_usdt": 5010.58,
+      "estimated_return_pct": 0.212,
+      "open_at_end": 0,
+      "counts": {
+        "raw_signals": 1,
+        "opened": 1,
+        "NET_TAKE_PROFIT": 1
+      },
+      "wallets": {
+        "okx": 1000.0,
+        "bitget": 1018.11,
+        "gate": 992.46,
+        "mexc": 1000.0,
+        "phemex": 1000.0
+      },
+      "start_utc": "2026-11-02T23:58:00+00:00",
+      "end_utc_exclusive": "2026-11-03T03:58:00+00:00"
+    }
+  ],
+  "training_selection": null,
+  "baseline_unseen_validation": {
+    "params": {
+      "min_gap_pct": 0.6,
+      "leverage": 20,
+      "wallet_allocation": 0.7,
+      "persistent_two_closes": false
+    },
+    "events": [
+      {
+        "coin": "SNX",
+        "long": "gate",
+        "short": "bitget",
+        "entry_gap_pct": 0.7471,
+        "open_utc": "2026-11-03T04:13:00+00:00",
+        "close_utc": "2026-11-03T04:14:00+00:00",
+        "leverage": 20,
+        "margin_per_leg": 682.39,
+        "net_usdt": -60.0505,
+        "reason": "LOSS_LIMIT"
+      },
+      {
+        "coin": "SNX",
+        "long": "gate",
+        "short": "bitget",
+        "entry_gap_pct": 0.7471,
+        "open_utc": "2026-11-03T04:14:00+00:00",
+        "close_utc": "2026-11-03T04:20:00+00:00",
+        "leverage": 20,
+        "margin_per_leg": 661.83,
+        "net_usdt": -12.8174,
+        "reason": "MAX_HOLD"
+      },
+      {
+        "coin": "SNX",
+        "long": "mexc",
+        "short": "bitget",
+        "entry_gap_pct": 0.6297,
+        "open_utc": "2026-11-03T05:10:00+00:00",
+        "close_utc": "2026-11-03T05:11:00+00:00",
+        "leverage": 20,
+        "margin_per_leg": 642.25,
+        "net_usdt": -27.2323,
+        "reason": "LOSS_LIMIT"
+      }
+    ],
+    "closed": 3,
+    "winners": 0,
+    "realized_pnl_usdt": -100.1,
+    "marked_equity_usdt": 4899.9,
+    "estimated_return_pct": -2.002,
+    "open_at_end": 0,
+    "counts": {
+      "raw_signals": 9,
+      "gap_vanished_at_next_open": 3,
+      "opened": 3,
+      "LOSS_LIMIT": 2,
+      "MAX_HOLD": 1
+    },
+    "wallets": {
+      "okx": 1000.0,
+      "bitget": 912.29,
+      "gate": 986.5,
+      "mexc": 1001.12,
+      "phemex": 1000.0
+    },
+    "start_utc": "2026-11-03T03:58:00+00:00",
+    "end_utc_exclusive": "2026-11-03T05:58:00+00:00"
+  },
+  "selected_unseen_validation": null,
+  "promotion_decision": "NOT VALIDATED FOR REAL TRADING",
+  "limitations": [
+    "Signals use completed candle closes and hypothetical entry/exit at NEXT minute opens, not synchronized executable order books.",
+    "Intraminute extremes only approximate margin breach; real 20x liquidation could happen sooner than candle resolution.",
+    "No real fill queue, order book size, funding, contract size, precise fee tier, outage, delayed leg, cross-venue transfer.",
+    "Data training/test split is chronological but still only a few hours; repeated testing risks overfitting.",
+    "If no positive train candidate has >=3 closed trades, no strategy is promoted."
+  ]
+}
