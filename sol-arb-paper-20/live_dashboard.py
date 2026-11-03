@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-BASE=Path("/root/sol-arb-paper-20-aggressive/multicoin-v2")
+BASE=Path("/root/sol-arb-paper-20-aggressive/multicoin-v3")
 TZ=ZoneInfo("Australia/Melbourne")
 
 def dollars(x):
@@ -48,7 +48,7 @@ def main():
         while True:
             d=get_summary()
             print("\033[2J\033[H",end="")
-            print("🚀 MULTI-COIN ARBITRAGE  |  LIVE PAPER TRADING BOARD")
+            print("🚀 MULTI-COIN V3 ARBITRAGE  |  LIVE PAPER TRADING BOARD")
             print("🕒 Melbourne",datetime.now(TZ).strftime("%I:%M:%S %p"),"| Refresh: 5 seconds")
             print("🧪 PAPER ONLY — estimated fills, not live executable profit")
             print("═"*72)
@@ -65,7 +65,7 @@ def main():
                 print("🏦 ESTIMATED EQUITY:",dollars(d.get("estimated_equity_usdt")))
                 print("✅ REALIZED NET P&L:",profit(d.get("realized_net_pnl_usdt")))
                 print("📈 OPEN NET P&L:",profit(d.get("unrealized_net_pnl_usdt")))
-                print("🌐 EXCHANGES:",len(d.get("supported_exchanges",[])),"/20",
+                print("🌐 EXCHANGES:",len(d.get("supported_exchanges",[])),"/30",
                       "| 🪙 COINS:",d.get("instrument_universe","?"),
                       "| ⏱ RUN:",d.get("elapsed_minutes","?"),"minutes")
                 print("🟢 OPEN PAIRS:",d.get("open_pairs",0),
