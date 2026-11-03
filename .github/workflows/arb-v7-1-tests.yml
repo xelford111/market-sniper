@@ -58,6 +58,6 @@ jobs:
           assert d["starting_equity_usdt"]==5000
           assert d["research_gap_threshold_pct"]==0.15
           assert d["leverage_x"]==5
-          assert d["collateral_cap_per_wallet"]==0.2
+          assert d["collateral_cap_per_wallet"]==0.5
           assert d["cycles"]>0
           PY
