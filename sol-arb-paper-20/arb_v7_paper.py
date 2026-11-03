@@ -485,7 +485,7 @@ def choose_coins(venues,limit):
     # Only currencies supported by two or more of the funded five venues.
     counts=Counter()
     for v in venues.values():
-        counts.update(v.markets)
+        counts.update(v.markets.keys())
     coins=[c for c,n in counts.items() if n>=2]
     priority={c:i for i,c in enumerate(COINS_PRIORITY)}
     coins.sort(key=lambda c:(0,priority[c]) if c in priority else (1,c))
@@ -509,6 +509,9 @@ def self_test():
         def quantize(self,coin,qty):
             return math.floor(qty/self.cs)*self.cs
     venues={"okx":StubVenue(),"bitget":StubVenue()}
+    # Market mapping is a dict[str,(symbol,market)]. Counting the mapping
+    # itself would incorrectly add tuple values as Counter increments.
+    assert choose_coins(venues,5)==["SOL"]
     b1={"bids":[(100.0,100)],"asks":[(100.1,100)],
         "timestamp_present":True}
     b2={"bids":[(101.0,100)],"asks":[(101.1,100)],
