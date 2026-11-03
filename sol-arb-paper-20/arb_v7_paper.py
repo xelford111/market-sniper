@@ -20,8 +20,8 @@ import time
 from collections import Counter
 from pathlib import Path
 
-VERSION="V7-PAPER-1"
-VENUES=("okx","bitget","gate","mexc","phemex")
+VERSION="V7-PAPER-2"
+VENUES=("okx","bitget","gate","mexc","bingx")
 INITIAL_USDT=1000.0
 LEVERAGE=5.0
 COLLATERAL_CAP=0.20
@@ -272,7 +272,7 @@ def discovery(quotes):
             for v2,(bid2,ask2) in values:
                 if v1!=v2:
                     gap=bid2/ask1-1
-                    if MIN_GROSS_TICKER_GAP<=gap<0.05:
+                    if 0<gap<0.05:
                         observed.append((gap,coin,v1,v2))
     observed.sort(reverse=True)
     return observed
@@ -493,7 +493,7 @@ def choose_coins(venues,limit):
 
 def self_test():
     state=fresh_state()
-    assert len(state["wallets"])==5
+    assert len(state["wallets"])==5 and "bingx" in VENUES
     assert sum(state["wallets"].values())==5000.0
     assert LEVERAGE==5 and COLLATERAL_CAP==0.20
     book={"bids":[[100.0,20.0]],"asks":[[100.2,20.0]]}
@@ -609,12 +609,44 @@ def run(a):
                     except Exception as ex:
                         state["venue_status"][name]={"status":"ERROR","error":str(ex)[:140]}
                         d["ticker_errors"]=d.get("ticker_errors",0)+1
-                seen=discovery(scans)
+                all_observed=discovery(scans)
+                seen=[x for x in all_observed if x[0]>=MIN_GROSS_TICKER_GAP]
                 state["total_candidates"]+=len(seen)
                 state["top_discovery"]=[{"coin":coin,"buy":buy,"sell":sell,
-                     "discovery_gap_pct":round(gap*100,3),
-                     "warning":"Ticker-only idea, NOT executable"}
-                     for gap,coin,buy,sell in seen[:12]]
+                     "discovery_gap_pct":round(gap*100,4),
+                     "eligible_for_book_check":gap>=MIN_GROSS_TICKER_GAP,
+                     "warning":"Observed ticker gap only — not executable"}
+                     for gap,coin,buy,sell in all_observed[:12]]
+                # Research-only book sampling reveals whether small
+                # ticker gaps survive real depth, even without any trades.
+                if state["cycles"]%3==0:
+                    watch=all_observed[0] if all_observed else None
+                    if watch is None and "SOL" in coins:
+                        ready=[name for name,v in venues.items() if "SOL" in v.markets]
+                        if len(ready)>=2:
+                            watch=(0.0,"SOL",ready[0],ready[1])
+                    if watch is not None:
+                        _,watchcoin,watchbuy,watchsell=watch
+                        try:
+                            sample=two_books(pool,venues,watchbuy,watchsell,watchcoin)
+                            if sample:
+                                a1,b1=sample
+                                gap_pct=(b1["bids"][0][0]/a1["asks"][0][0]-1)*100
+                                state["book_validations"].append({
+                                    "utc":utc(),"coin":watchcoin,
+                                    "buy":watchbuy,"sell":watchsell,
+                                    "gross_gap_pct":round(gap_pct,4),
+                                    "full_convergence_scenario_usdt":None,
+                                    "notional_per_leg_usdt":None,
+                                    "diagnostic_only":True,
+                                    "both_exchange_book_timestamps":
+                                      bool(a1["timestamp_present"] and b1["timestamp_present"])})
+                                state["book_validations"]=state["book_validations"][-40:]
+                                d["diagnostic_books_good"]=d.get("diagnostic_books_good",0)+1
+                            else:
+                                d["diagnostic_book_unavailable"]=d.get("diagnostic_book_unavailable",0)+1
+                        except Exception as ex:
+                            d["diagnostic_book_error"]=d.get("diagnostic_book_error",0)+1
                 allowed=(state["paused_reason"] is None and
                          len(state["positions"])<MAX_ACTIVE_PAIRS and
                          unmarked==0 and len(coins)>=5)
@@ -675,7 +707,9 @@ def run(a):
                         print("⚠️ BOOK CHECK",coin,buy,sell,type(ex).__name__,str(ex)[:85],flush=True)
                 state["cycles"]+=1
                 save_json(state_path,state)
-                save_json(root/"summary.json",snapshot(state,unmarked,marks,len(coins)))
+                current_keys={(p["long"],p["short"],p["coin"]) for p in state["positions"]}
+                active_marks={k:v for k,v in marks.items() if k in current_keys}
+                save_json(root/"summary.json",snapshot(state,unmarked,active_marks,len(coins)))
                 if state["cycles"]%3==0:
                     print("📊",utc(),"cycle",state["cycles"],"ticker ideas",len(seen),
                           "books checked",checked,"open",len(state["positions"]),
