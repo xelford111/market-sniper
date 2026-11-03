@@ -44,7 +44,20 @@ jobs:
       - run: pip install "aiohttp>=3.11,<4"
       - name: 90-second forward public feeds smoke test
         run: |
-          timeout 125s python -u venom-leadlag/leadlag_paper.py --output /tmp/leadlag-canary --minutes 1.5 --port 8788 --start 1000 --leverage 5 --margin-fraction 0.2
+          set -e
+          timeout 125s python -u venom-leadlag/leadlag_paper.py --output /tmp/leadlag-canary --minutes 1.5 --port 8788 --start 1000 --leverage 5 --margin-fraction 0.2 &
+          ENGINE_PID=$!
+          sleep 25
+          curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8788/api/leadlag/public -o /tmp/leadlag-canary-api.json
+          python - <<'CHECK'
+          import json
+          x=json.load(open('/tmp/leadlag-canary-api.json'))
+          print('MARKET FEED COUNTS:', {v: [f.get('status'),f.get('count'),f.get('error')] for v,f in x['market_feeds'].items()})
+          print('MARKET QUOTES:', {q['symbol']:{v:q[v] is not None for v in ('binance','okx','bybit')} for q in x['markets']})
+          assert x['wallet']['starting']==1000
+          assert all(f.get('count',0)>0 for f in x['market_feeds'].values()), 'All three reference/execution feeds must provide parseable public quotes'
+          CHECK
+          wait $ENGINE_PID
           python - <<'PY'
           import json
           d=json.load(open('/tmp/leadlag-canary/state.json'))
