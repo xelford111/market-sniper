@@ -19,7 +19,7 @@ fi
 mv "$DIR/arb_v7_paper.py.new" "$DIR/arb_v7_paper.py"
 mv "$DIR/live_dashboard_v7.py.new" "$DIR/live_dashboard_v7.py"
 
-if test "$SPOTX_PAUSE" = "1"; then
+if test "${SPOTX_PAUSE:-0}" = "1"; then
     echo '=== Pausing only known SpotX trading process paths ==='
     python3 - <<'PY'
 from pathlib import Path
