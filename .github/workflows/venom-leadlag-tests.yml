@@ -1,0 +1,57 @@
+name: VENOM Lead-Lag V1 Read-Only Tests
+on:
+  push:
+    branches: [feature/venom-leadlag-paper-20261103]
+    paths:
+      - "venom-leadlag/**"
+      - ".github/workflows/venom-leadlag-tests.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install "aiohttp>=3.11,<4"
+      - name: Syntax checks
+        run: |
+          python -m py_compile venom-leadlag/leadlag_paper.py venom-leadlag/test_leadlag.py
+      - name: Zero-network regression tests
+        run: python venom-leadlag/test_leadlag.py
+      - name: Prove no private endpoint or exchange order code
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('venom-leadlag/leadlag_paper.py').read_text()
+          for forbidden in ['create_order(','.place_order(','.set_leverage(','.withdraw(','.transfer(', 'apiKey', 'apiSecret', 'wss://stream.bybit.com/v5/private']:
+              assert forbidden not in s, f'Live execution construct found: {forbidden}'
+          print('✅ Public feeds and local JSON only; no real order code')
+          PY
+  public_canary:
+    runs-on: ubuntu-latest
+    needs: offline
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install "aiohttp>=3.11,<4"
+      - name: 90-second forward public feeds smoke test
+        run: |
+          timeout 125s python -u venom-leadlag/leadlag_paper.py --output /tmp/leadlag-canary --minutes 1.5 --port 8788 --start 1000 --leverage 5 --margin-fraction 0.2
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/leadlag-canary/state.json'))
+          print('CANARY PAPER STATE:',json.dumps({
+            'available':d['available'],'completed':d['completed'],
+            'entered':d['entered'],'realized':d['realized'],
+            'raw_candidates':d['raw_candidates']},indent=2))
+          assert d['initial_usdt']==1000
+          assert d['version']=='venom-leadlag-paper-v1'
+          PY
