@@ -370,8 +370,8 @@ def entry_estimate(state,venues,long_v,short_v,coin,books):
         return None,"gross_gap_too_small"
     cash_a=state["wallets"][long_v]
     cash_b=state["wallets"][short_v]
-    # One position per venue with <=20% of its free paper balance.
-    # Always 20% of the CURRENT free wallet balance: losses shrink sizing;
+    # One position per venue with <=50% of its free paper balance.
+    # Always 50% of the CURRENT free wallet balance: losses shrink sizing;
     # realized gains gradually increase sizing. No fixed $200 ceiling.
     cap_a=max(0.0,cash_a)*COLLATERAL_CAP
     cap_b=max(0.0,cash_b)*COLLATERAL_CAP
@@ -641,7 +641,7 @@ def run(a):
     state_path=root/"state.json"
     events_path=root/"events.jsonl"
     state=load_state(state_path)
-    print("🚀 V7 FORWARD PAPER ONLY | 5×1,000 USDT | 5x | 20% per-wallet cap",flush=True)
+    print("🚀 V7.1 FORWARD PAPER ONLY | 5×1,000 USDT | 5x | 50% per-wallet cap",flush=True)
     print("🛑 No credentials, no real orders, no SpotX/VENOM modifications",flush=True)
     print("📚 Loading markets for funded venues:",", ".join(VENUES),flush=True)
     venues={}
