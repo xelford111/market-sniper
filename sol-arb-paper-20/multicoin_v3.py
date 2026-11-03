@@ -204,7 +204,7 @@ def summary(state,unrealized=None):
     free=sum(state["wallets"].values())
     margin=sum(p["long_margin"]+p["short_margin"] for p in positions)
     # Opening fees are already charged to wallet cash.
-    equity=free+margin+unrealized if unrealized is not None else None
+    equity=(free+margin+unrealized+sum(p['open_fees'] for p in positions)) if unrealized is not None else None
     supported=[name for name,x in state["connected"].items() if x.get("quotes",0)>0]
     result={
       "utc":stamp(),"starting_equity_usdt":len(VENUES)*START_USDT_PER_VENUE,
@@ -256,6 +256,7 @@ def main():
                 # Exit monitoring is higher priority than searching for new spreads.
                 unpriced=[]
                 unrealized=0.0
+                priced=set()
                 for p in list(state["positions"]):
                     if time.monotonic()-tick>35:break
                     books=pair_books(p["long"],p["short"],p["coin"],pool)
@@ -285,7 +286,9 @@ def main():
                             "long":p["long"],"short":p["short"],"net_realized_pnl_usdt":round(net,4),
                             "held_seconds":round(hold)})
                         print("✅ CLOSE",p["coin"],round(net,3),"USDT",flush=True)
-                    else:unrealized+=net
+                    else:
+                        unrealized+=net
+                        priced.add((p['long'],p['short'],p['coin']))
                 # Discover two new venues per scan, maintaining only brief quote cache.
                 batch=[VENUES[next_index%len(VENUES)],VENUES[(next_index+1)%len(VENUES)]]
                 next_index=(next_index+2)%len(VENUES)
@@ -368,7 +371,7 @@ def main():
                           "notional",round(long_margin,2),"gap%",round(live_gap*100,3),flush=True)
                 state["scan_batches"]+=1
                 # Open PnL only available when every remaining position was marked.
-                open_mark=unrealized if not unpriced and len(state["positions"])==0 else None
+                open_mark=(unrealized if not unpriced and len(priced)==len(state['positions']) else None)
                 data=summary(state,open_mark)
                 atomic_json(root/"summary.json",data)
                 atomic_json(state_path,state)
