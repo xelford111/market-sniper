@@ -190,7 +190,7 @@ def save(root,wallets,positions,realized,trades,venues,failures,start,attempted,
       "exchanges_attempted":attempted,
       "instrument_universe":len(COINS),
       "completed_pairs":trades,
-      "open_pairs":len(positions),
+      "open_pairs":len(positions),"open_position_details":[{"coin":p["coin"],"long":p["long_venue"],"short":p["short_venue"],"notional_usdt":round(p["notional"],2)} for p in positions],
       "realized_net_pnl_usdt":round(realized,4),
       "unrealized_net_pnl_usdt":round(open_value,4) if open_value is not None else None,
       "wallet_free_usdt":round(sum(wallets.values()),4),
@@ -199,7 +199,9 @@ def save(root,wallets,positions,realized,trades,venues,failures,start,attempted,
       "warning":"Research-only simulation, no orders. REST ticker discovery is asynchronous, fills and close liquidity not guaranteed; venue contract specifics, funding, actual fee tiers, liquidation and market-impact risk not fully modeled. Open pairs are not realized profits."
     }
     if open_value is not None:
-        summary["estimated_equity_usdt"]=round(summary["wallet_free_usdt"]+summary["reserved_margin_usdt"]+open_value,4)
+        summary["estimated_equity_usdt"]=round(
+          summary["wallet_free_usdt"]+summary["reserved_margin_usdt"]
+          +open_value+sum(p["open_fees"] for p in positions),4)
     (root/"summary.json").write_text(json.dumps(summary,indent=2)+"\n")
     return summary
 
@@ -269,12 +271,13 @@ def main():
                     est=hypothetical_close(p,*books)
                     if not est:continue
                     net,long_pnl,short_pnl,exit_fee,long_exit,short_exit=est
-                    unrealized+=net
-                    priceable+=1
                     age=time.monotonic()-p["opened_at"]
                     should_close=(age>=45 and net>=max(0.10,p["notional"]*EXIT_PROFIT_FRACTION)) or (
                         net<=p["notional"]*STOP_LOSS_FRACTION or age>=MAX_HOLD_SECONDS)
-                    if not should_close:continue
+                    if not should_close:
+                        unrealized+=net
+                        priceable+=1
+                        continue
                     wallets[p["long_venue"]]+=p["long_margin"]+long_pnl-long_exit*p["qty"]*TAKER_FEE
                     wallets[p["short_venue"]]+=p["short_margin"]+short_pnl-short_exit*p["qty"]*TAKER_FEE
                     realized+=net
