@@ -1,0 +1,39 @@
+name: V6 out-of-sample arbitrage research
+on:
+  push:
+    branches: [paper-sol-arb-20-venue-20261103]
+    paths:
+      - "sol-arb-paper-20/walkforward_v6.py"
+      - ".github/workflows/walkforward-v6.yml"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  walkforward:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: paper-sol-arb-20-venue-20261103
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install public-data library
+        run: pip install "ccxt>=4.4,<5"
+      - name: Syntax and arithmetic tests
+        run: |
+          python -m py_compile sol-arb-paper-20/walkforward_v6.py
+          python sol-arb-paper-20/walkforward_v6.py --self-test
+      - name: Six-hour historical study with chronological holdout
+        run: python -u sol-arb-paper-20/walkforward_v6.py --hours 6 --coins 50
+      - name: Save report
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add sol-arb-paper-20/reports/walkforward_v6.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Record V6 chronological holdout research results [skip ci]"
+            git push
+          fi
