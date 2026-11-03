@@ -1,0 +1,66 @@
+name: Arb V7 Paper Engine Tests
+on:
+  push:
+    branches: [paper-sol-arb-20-venue-20261103]
+    paths:
+      - "sol-arb-paper-20/arb_v7_paper.py"
+      - "sol-arb-paper-20/live_dashboard_v7.py"
+      - ".github/workflows/arb-v7-tests.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Syntax
+        run: python -m py_compile sol-arb-paper-20/arb_v7_paper.py sol-arb-paper-20/live_dashboard_v7.py
+      - name: Risk, mark-to-market and wallet tests
+        run: python sol-arb-paper-20/arb_v7_paper.py --self-test
+      - name: Check no real exchange-write calls in engine
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          x=Path("sol-arb-paper-20/arb_v7_paper.py").read_text()
+          forbidden=[".create_order(", ".create_orders(", ".set_leverage(", ".transfer(", ".withdraw(", "apiKey", "secret="]
+          for token in forbidden:
+              assert token not in x, f"Prohibited live execution code: {token}"
+          print("✅ No live order, credential, transfer or withdraw code")
+          PY
+  canary:
+    runs-on: ubuntu-latest
+    needs: checks
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install public-only CCXT
+        run: pip install "ccxt>=4.4,<5"
+      - name: 70-second real public-data forward canary (no orders)
+        run: |
+          python -u sol-arb-paper-20/arb_v7_paper.py --minutes 1.2 --poll 15 --coins 30 --max-book-checks 2 --out /tmp/arb-v7-canary
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/arb-v7-canary/summary.json'))
+          print('PAPER CANARY:',json.dumps({
+              'version':d['version'],
+              'cycles':d['cycles'],
+              'venues':d['venue_status'],
+              'coins':d['coin_universe'],
+              'ideas':d['candidate_count_total'],
+              'open':d['open_pairs'],
+              'closed':d['closed_pairs'],
+              'pnl':d['realized_net_pnl_usdt'],
+              'paused':d['paused_reason']
+          },indent=2))
+          assert d['starting_equity_usdt']==5000
+          assert d['leverage_x']==5
+          assert d['collateral_cap_per_wallet']==0.2
+          PY
