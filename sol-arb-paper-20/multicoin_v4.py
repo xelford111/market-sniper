@@ -244,7 +244,7 @@ def main():
     parser.add_argument("--minutes",type=float,default=60)
     parser.add_argument("--workers",type=int,default=2)
     parser.add_argument("--poll",type=float,default=5)
-    parser.add_argument("--output",default="/root/sol-arb-paper-20-aggressive/multicoin-v3")
+    parser.add_argument("--output",default="/root/sol-arb-paper-20-aggressive/multicoin-v4")
     args=parser.parse_args()
     if args.minutes<=0 or args.workers not in (1,2) or args.poll<2:
         parser.error("minutes>0, workers must be 1 or 2, poll>=2")
@@ -463,8 +463,25 @@ def main():
         append_event(logs,{"event":"FINAL","summary":final})
         print("FINAL",json.dumps(final),flush=True)
 
+def self_test():
+    assert len(VENUES)==30 and len(COINS)==100
+    assert len(new_state()["wallets"])==30
+    assert abs(sum(new_state()["wallets"].values())-15000)<1e-6
+    assert abs(vwap([[100.0,2.0],[101.0,1.0]],2.5)-100.2)<1e-9
+    sample={"qty":1.0,"long_entry":100.0,"short_entry":100.0,"open_fees":0.12}
+    left={"bids":[[101.0,5.0]]}
+    right={"asks":[[99.0,5.0]]}
+    result=evaluate_close(sample,left,right)
+    assert result and result["net"]>0
+    demo=summary(new_state(),0.0)
+    assert demo["starting_equity_usdt"]==15000
+    assert demo["estimated_equity_usdt"]==15000
+    print("✅ V4 offline arithmetic checks PASS — no exchange or real order used")
+
 if __name__=="__main__":
-    if len(sys.argv)>=4 and sys.argv[1]=="--worker":
+    if "--self-test" in sys.argv:
+        self_test()
+    elif len(sys.argv)>=4 and sys.argv[1]=="--worker":
         venue,mode=sys.argv[2],sys.argv[3]
         coin=sys.argv[4] if len(sys.argv)>4 else None
         print(json.dumps(worker(venue,mode,coin),separators=(",",":")))
