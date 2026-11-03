@@ -61,7 +61,9 @@ jobs:
               'open':d['open_pairs'],
               'closed':d['closed_pairs'],
               'pnl':d['realized_net_pnl_usdt'],
-              'paused':d['paused_reason']
+              'paused':d['paused_reason'],
+              'diagnostics':d['diagnostics'],
+              'book_samples':d['book_validations'][-3:]
           },indent=2))
           assert d['starting_equity_usdt']==5000
           assert d['leverage_x']==5
