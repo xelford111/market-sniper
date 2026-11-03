@@ -427,7 +427,7 @@ class Engine:
         return {
             "version":VERSION,"timestamp":clock(),"mode":"paper",
             "strategy":"binance_okx_leadlag_bybit",
-            "status":"ACTIVE" if any(item["bybit"] for item in symbols) else "WAITING_FOR_FEEDS",
+            "status":"ACTIVE" if any(all(item[v] is not None for v in ("binance","okx","bybit")) for item in symbols) else "WAITING_FOR_FEEDS",
             "wallet":{"venue":"Bybit","currency":"USDT","starting":self.start,
                  "available":round(self.available,3),
                  "reserved_margin":round(p["margin"],3) if p else 0.0,
