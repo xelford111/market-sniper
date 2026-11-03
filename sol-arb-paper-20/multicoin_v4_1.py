@@ -401,22 +401,22 @@ def main():
                         probe_sell=vwap(sb["bids"],research_qty)
                         if probe_buy and probe_sell:
                             # Estimate two opening fees, two closing fees and
-                            # adverse slippage on all four fills. Assumes
-                            # exit quotes at current book levels (no convergence).
+                            # adverse slippage on all four fills. This is a
+                            # SCENARIO assuming the spread fully converges.
                             indicative_cost=(2*FEE+2*SLIP)*(probe_buy+probe_sell)*research_qty
                             pre_cost=(probe_sell-probe_buy)*research_qty
-                            est_edge_usdt=pre_cost-indicative_cost
+                            est_full_convergence_usdt=pre_cost-indicative_cost
                             probe={"utc":stamp(),"coin":coin,"buy":buy,"sell":sell,
                                    "discovery_gap_pct":round(gap*100,4),
                                    "fresh_book_gap_pct":round(live_gap*100,4),
-                                   "estimated_edge_usdt_no_convergence":round(est_edge_usdt,5),
+                                   "full_convergence_scenario_usdt":round(est_full_convergence_usdt,5),
                                    "research_quantity":round(research_qty,8),
                                    "book_time_skew_s":round(abs(lb["at"]-sb["at"]),3),
-                                   "note":"Paper research only, ignores funding and later exit spread changes"}
+                                   "note":"Scenario only: assumes full eventual spread convergence, omits funding, not realized or executable profit"}
                             state["top_book_probes"]=(state.get("top_book_probes",[])+[probe])[-30:]
                             d["validated_books"]=d.get("validated_books",0)+1
-                            if est_edge_usdt>0:
-                                d["positive_estimated_book_edges"]=d.get("positive_estimated_book_edges",0)+1
+                            if est_full_convergence_usdt>0:
+                                d["positive_full_convergence_scenarios"]=d.get("positive_full_convergence_scenarios",0)+1
                     if live_gap<MIN_GAP:
                         d["below_trade_threshold_after_book"]=d.get("below_trade_threshold_after_book",0)+1
                         continue
