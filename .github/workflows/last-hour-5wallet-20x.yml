@@ -1,0 +1,40 @@
+name: Last Hour 5 Wallet 20x Research Replay
+on:
+  push:
+    branches: [paper-sol-arb-20-venue-20261103]
+    paths:
+      - "sol-arb-paper-20/replay_5_wallet_20x_last_hour.py"
+      - ".github/workflows/last-hour-5wallet-20x.yml"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: paper-sol-arb-20-venue-20261103
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install public-data dependency
+        run: pip install "ccxt>=4.4,<5"
+      - name: Syntax check
+        run: python -m py_compile sol-arb-paper-20/replay_5_wallet_20x_last_hour.py
+      - name: Run 60-minute retrospective paper replay
+        run: python -u sol-arb-paper-20/replay_5_wallet_20x_last_hour.py --max-coins 75
+      - name: Commit research report for review
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add sol-arb-paper-20/reports/last_hour_5_wallet_20x.json
+          if test -f sol-arb-paper-20/reports/last_hour_5_wallet_20x.csv; then
+            git add sol-arb-paper-20/reports/last_hour_5_wallet_20x.csv
+          fi
+          if ! git diff --cached --quiet; then
+            git commit -m "Record last-hour 20x public candle replay [skip ci]"
+            git push
+          fi
