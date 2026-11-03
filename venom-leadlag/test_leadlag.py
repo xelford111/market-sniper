@@ -55,6 +55,30 @@ def test_signal():
     assert ll.compute_signal(hist,quoted,"BTCUSDT",now) is None
     print("✅ Agreement, lag-direction, stale-source and lookback tests passed")
 
+def test_near_misses():
+    now=100.0
+    stamp=now*1000
+    hist={}
+    quoted={}
+    for venue,move in (("binance",0.001),("okx",0.0009),("bybit",0.0001)):
+        hist[(venue,"BTCUSDT")]=[(98.0,100)]
+        quoted[(venue,"BTCUSDT")]=q(100*(1+move),stamp,99.9)
+    row=ll.near_miss_observation(hist,quoted,"BTCUSDT",now)
+    assert row and row["reason"]=="LEADER_BELOW_12BPS",row
+    assert 8<row["lag_gap_bps"]<10
+    assert row["minimum_net_hurdle_lag_bps"]==45
+    assert row["estimated_gap_to_net_hurdle_bps"]>35
+    # If we have enough of a lag to pass the 15bps gate but not to
+    # clear expected costs, the diagnostic should say so explicitly.
+    quoted[("binance","BTCUSDT")]=q(100.45,stamp,99.9)
+    quoted[("okx","BTCUSDT")]=q(100.40,stamp,99.9)
+    quoted[("bybit","BTCUSDT")]=q(100.02,stamp,99.9)
+    row=ll.near_miss_observation(hist,quoted,"BTCUSDT",now)
+    assert row and row["reason"]=="ESTIMATED_NET_BELOW_3BPS",row
+    assert 40<row["lag_gap_bps"]<42
+    assert not ll.near_miss_observation(hist,quoted,"BTCUSDT",now+4)
+    print("✅ Near-miss reasons, modeled gap hurdle and stale quote rejection passed")
+
 def test_wallet():
     with tempfile.TemporaryDirectory() as root:
         e=ll.Engine(root,1000,5,0.2)
@@ -105,6 +129,7 @@ def test_studies():
 def main():
     test_parser()
     test_signal()
+    test_near_misses()
     test_wallet()
     test_studies()
     print("🟢 ALL VENOM LEAD-LAG V1 OFFLINE TESTS PASSED; no real exchange orders possible.")
