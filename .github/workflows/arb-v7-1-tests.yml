@@ -1,0 +1,63 @@
+name: V7.1 Cost Research Tests
+on:
+  push:
+    branches: [paper-sol-arb-20-venue-20261103]
+    paths:
+      - "sol-arb-paper-20/arb_v7_1_paper.py"
+      - "sol-arb-paper-20/live_dashboard_v7_1.py"
+      - "sol-arb-paper-20/upgrade_v7_1.sh"
+      - ".github/workflows/arb-v7-1-tests.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Syntax
+        run: |
+          python -m py_compile sol-arb-paper-20/arb_v7_1_paper.py sol-arb-paper-20/live_dashboard_v7_1.py
+          if test -f sol-arb-paper-20/upgrade_v7_1.sh; then bash -n sol-arb-paper-20/upgrade_v7_1.sh; fi
+      - name: Wallet and scenario regression tests
+        run: python sol-arb-paper-20/arb_v7_1_paper.py --self-test
+      - name: Confirm paper only
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          s=Path("sol-arb-paper-20/arb_v7_1_paper.py").read_text()
+          for x in (".create_order(", ".create_orders(", ".set_leverage(", ".withdraw(", ".transfer(", "apiKey", "secret="):
+              assert x not in s, "Live execution capability detected: "+x
+          assert 'MIN_GROSS_BOOK_GAP=0.006' in s
+          assert 'RESEARCH_GROSS_GAP=0.0015' in s
+          print("✅ Entry rules unchanged; research only down to 0.15%; no real orders")
+          PY
+  canary:
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CCXT
+        run: pip install "ccxt>=4.4,<5"
+      - name: Run public read-only canary
+        run: |
+          python -u sol-arb-paper-20/arb_v7_1_paper.py --minutes 1.2 --poll 15 --coins 40 --max-book-checks 2 --out /tmp/v7_1_readonly
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/v7_1_readonly/summary.json'))
+          fields=("version","cycles","venue_status","coin_universe","research_gap_threshold_pct",
+                  "candidate_count_total","research_samples","diagnostics","closed_pairs")
+          print(json.dumps({k:d[k] for k in fields},indent=2))
+          assert d["starting_equity_usdt"]==5000
+          assert d["research_gap_threshold_pct"]==0.15
+          assert d["leverage_x"]==5
+          assert d["collateral_cap_per_wallet"]==0.2
+          assert d["cycles"]>0
+          PY
