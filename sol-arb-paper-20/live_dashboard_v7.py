@@ -114,10 +114,13 @@ def main():
                 checks=d.get("book_validations") or []
                 if not checks:print("  ⏳ No confirmed book checks yet")
                 for p in checks[-6:]:
-                    print(f"  🔎 {p.get('coin','?'):<8}"
+                    mode="🧭 SAMPLE ONLY" if p.get("diagnostic_only") else "✅ ENTRY BOOK VALIDATED"
+                    print(f"  {mode} {p.get('coin','?'):<8}"
                           f" {p.get('buy','?')} → {p.get('sell','?')}"
-                          f" gap {p.get('gross_gap_pct',0):.3f}%"
-                          f" full-convergence scenario {p.get('full_convergence_scenario_usdt','?')} USDT")
+                          f" fresh book gap {p.get('gross_gap_pct',0):.3f}%")
+                    if not p.get("diagnostic_only"):
+                        print("      Full-convergence scenario:",
+                              p.get("full_convergence_scenario_usdt"),"USDT (not expected P&L)")
                 print("─"*76)
                 print("⚠️ BOOK/ENTRY REJECTIONS")
                 for key,value in sorted((d.get("diagnostics") or {}).items(),
