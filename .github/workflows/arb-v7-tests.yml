@@ -5,6 +5,7 @@ on:
     paths:
       - "sol-arb-paper-20/arb_v7_paper.py"
       - "sol-arb-paper-20/live_dashboard_v7.py"
+      - "sol-arb-paper-20/install_v7_paper.sh"
       - ".github/workflows/arb-v7-tests.yml"
   workflow_dispatch:
 permissions:
@@ -19,7 +20,9 @@ jobs:
         with:
           python-version: '3.11'
       - name: Syntax
-        run: python -m py_compile sol-arb-paper-20/arb_v7_paper.py sol-arb-paper-20/live_dashboard_v7.py
+        run: |
+          python -m py_compile sol-arb-paper-20/arb_v7_paper.py sol-arb-paper-20/live_dashboard_v7.py
+          bash -n sol-arb-paper-20/install_v7_paper.sh
       - name: Risk, mark-to-market and wallet tests
         run: python sol-arb-paper-20/arb_v7_paper.py --self-test
       - name: Check no real exchange-write calls in engine
