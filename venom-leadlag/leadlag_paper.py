@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 
 try:
-    from aiohttp import web, ClientSession, WSMsgType, ClientTimeout
+    from aiohttp import web, ClientSession, WSMsgType, ClientTimeout, ClientWSTimeout
 except ImportError as e:
     raise SystemExit("Install aiohttp: python3 -m pip install aiohttp>=3.9") from e
 
@@ -236,9 +236,9 @@ class Engine:
         retry=1
         while not self.stop:
             try:
-                timeout=ClientTimeout(total=25)
                 async with session.ws_connect(FEED_URLS[venue],heartbeat=15,
-                        receive_timeout=30,timeout=timeout,autoping=True) as ws:
+                        timeout=ClientWSTimeout(ws_receive=45,ws_close=10),
+                        autoping=True) as ws:
                     self.feed_stats[venue]["status"]="CONNECTED"
                     self.feed_stats[venue]["error"]=None
                     retry=1
