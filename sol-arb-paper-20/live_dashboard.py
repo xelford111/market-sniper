@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-BASE=Path("/root/sol-arb-paper-20-aggressive/multicoin-v3")
+BASE=Path("/root/sol-arb-paper-20-aggressive/multicoin-v4")
 TZ=ZoneInfo("Australia/Melbourne")
 
 def dollars(x):
@@ -48,7 +48,7 @@ def main():
         while True:
             d=get_summary()
             print("\033[2J\033[H",end="")
-            print("🚀 MULTI-COIN V3 ARBITRAGE  |  LIVE PAPER TRADING BOARD")
+            print("🚀 MULTI-COIN V4 ARBITRAGE  |  LIVE PAPER TRADING BOARD")
             print("🕒 Melbourne",datetime.now(TZ).strftime("%I:%M:%S %p"),"| Refresh: 5 seconds")
             print("🧪 PAPER ONLY — estimated fills, not live executable profit")
             print("═"*72)
@@ -70,6 +70,27 @@ def main():
                       "| ⏱ RUN:",d.get("elapsed_minutes","?"),"minutes")
                 print("🟢 OPEN PAIRS:",d.get("open_pairs",0),
                       "| ✅ CLOSED PAIRS:",d.get("completed_pairs",0))
+                print("─"*72)
+                print("🔎 BIGGEST DISCOVERED SPREADS (NOT CONFIRMED TRADES)")
+                gaps=d.get("top_discrepancies") or []
+                if not gaps:print("  ⏳ No positive spread observations in the latest comparison")
+                for g in gaps[:8]:
+                    print(f"  {'🟢' if g.get('gross_gap_pct',0)>=0.7 else '⚪'} {g.get('coin','?'):<7} "
+                          f"{g.get('buy','?'):12} → {g.get('sell','?'):12} "
+                          f"gap {g.get('gross_gap_pct',0):>6.3f}%  lag {g.get('quote_skew_s','?')}s")
+                metrics=d.get("diagnostics") or {}
+                print("🔬 Compared",metrics.get("pairs_compared",0),
+                      "  |  Candidate gaps",d.get("candidate_total",0),
+                      "  |  Fresh-book attempts",sum(metrics.get(k,0) for k in (
+                          "book_unavailable_or_skewed","gap_disappeared_at_book",
+                          "after_fees_or_slippage","no_margin_or_depth",
+                          "insufficient_book_depth","below_minimum_notional",
+                          "venue_wallet_insufficient","paper_pairs_opened")))
+                print("⚠️ Rejections:",
+                      "book",metrics.get("book_unavailable_or_skewed",0),
+                      "vanished",metrics.get("gap_disappeared_at_book",0),
+                      "fees",metrics.get("after_fees_or_slippage",0),
+                      "liquidity",metrics.get("no_margin_or_depth",0)+metrics.get("insufficient_book_depth",0))
                 print("─"*72)
                 print("📍 OPEN POSITIONS")
                 positions=d.get("open_position_details") or []
