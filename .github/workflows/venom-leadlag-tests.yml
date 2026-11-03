@@ -23,6 +23,7 @@ jobs:
           python -m py_compile venom-leadlag/leadlag_paper.py venom-leadlag/test_leadlag.py
           bash -n venom-leadlag/install.sh
           bash -n venom-leadlag/repair_port.sh
+          bash -n venom-leadlag/enable_near_misses.sh
       - name: Zero-network regression tests
         run: python venom-leadlag/test_leadlag.py
       - name: Prove no private endpoint or exchange order code
