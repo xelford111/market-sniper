@@ -43,6 +43,7 @@ MIN_NET_CONVERGENCE_SCENARIO_USDT = 0.10
 MIN_ORDER = 25.0
 MAX_ORDER_FRACTION = 0.35
 MAX_OPEN = 1
+MAX_CUMULATIVE_REALIZED_LOSS_FRACTION = 0.03  # new paper entries pause after ~A$30 total realized loss
 TAKE_PROFIT_USDT = 0.25
 TAKE_PROFIT_FRACTION = 0.001
 STOP_LOSS_FRACTION = -0.02
@@ -234,6 +235,8 @@ def summary(state,unrealized=None):
     result={
       "utc":stamp(),"starting_equity_usdt":START_USDT_TOTAL,
       "starting_capital_aud":START_AUD,"aud_usd_reference":AUD_USD_REFERENCE,
+      "estimated_equity_aud_reference":round(equity/AUD_USD_REFERENCE,2) if equity is not None else None,
+      "realized_pnl_aud_reference":round(state["realized_net_pnl_usdt"]/AUD_USD_REFERENCE,2),
       "starting_per_exchange_usdt":START_USDT_PER_VENUE,
       "configured_exchanges":len(VENUES),"supported_exchanges":sorted(supported),
       "funded_venues":list(FUNDED_VENUES),
@@ -397,6 +400,9 @@ def main():
                 # reported for market research but can NEVER open a position.
                 candidates.sort(key=lambda x: (
                     int(x[2] in FUNDED_VENUES and x[3] in FUNDED_VENUES),x[0]),reverse=True)
+                if state["realized_net_pnl_usdt"]<=-START_USDT_TOTAL*MAX_CUMULATIVE_REALIZED_LOSS_FRACTION:
+                    d["risk_pause_no_new_entries"]=True
+                    candidates=[]
                 checked=0
                 for gap,coin,buy,sell in candidates:
                     if len(state["positions"])>=MAX_OPEN:
