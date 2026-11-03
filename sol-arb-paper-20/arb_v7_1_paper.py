@@ -24,7 +24,7 @@ VERSION="V7.1-PAPER-RESEARCH"
 VENUES=("okx","bitget","gate","mexc","bingx")
 INITIAL_USDT=1000.0
 LEVERAGE=5.0
-COLLATERAL_CAP=0.20
+COLLATERAL_CAP=0.50
 MAX_PAIR_LOSS_USDT=25.0
 MAX_TOTAL_REALIZED_LOSS_USDT=150.0
 MAX_CONSECUTIVE_LOSSES=3
@@ -580,7 +580,7 @@ def self_test():
     state=fresh_state()
     assert len(state["wallets"])==5 and "bingx" in VENUES
     assert sum(state["wallets"].values())==5000.0
-    assert LEVERAGE==5 and COLLATERAL_CAP==0.20
+    assert LEVERAGE==5 and COLLATERAL_CAP==0.50
     assert RESEARCH_GROSS_GAP==0.0015 and MIN_GROSS_BOOK_GAP==0.006
     book={"bids":[[100.0,20.0]],"asks":[[100.2,20.0]]}
     meta={"contractSize":0.1}
@@ -612,8 +612,8 @@ def self_test():
     assert state["research_history"][-1]["positive_samples_15m_including_current"]==2
     x,err=entry_estimate(state,venues,"okx","bitget","SOL",(b1,b2))
     assert err is None,err
-    assert x["margin_long"]+x["entry_fee_long"]<=200
-    assert x["margin_short"]+x["entry_fee_short"]<=200
+    assert x["margin_long"]+x["entry_fee_long"]<=500
+    assert x["margin_short"]+x["entry_fee_short"]<=500
     out=Path("/tmp/v7-selftest-events-"+str(os.getpid())+".jsonl")
     open_paper(state,x,out)
     # mark at favorable closing prices, then check wallet P&L conservation
