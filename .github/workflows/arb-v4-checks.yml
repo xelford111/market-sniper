@@ -5,6 +5,8 @@ on:
     paths:
       - "sol-arb-paper-20/multicoin_v4.py"
       - "sol-arb-paper-20/multicoin_v4_1.py"
+      - "sol-arb-paper-20/multicoin_v5_aud1000.py"
+      - "sol-arb-paper-20/live_dashboard_v5.py"
       - ".github/workflows/arb-v4-checks.yml"
   workflow_dispatch:
 jobs:
@@ -13,8 +15,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Python syntax validation
-        run: python3 -m py_compile sol-arb-paper-20/multicoin_v4.py sol-arb-paper-20/multicoin_v4_1.py sol-arb-paper-20/live_dashboard.py
+        run: python3 -m py_compile sol-arb-paper-20/multicoin_v4.py sol-arb-paper-20/multicoin_v4_1.py sol-arb-paper-20/multicoin_v5_aud1000.py sol-arb-paper-20/live_dashboard.py sol-arb-paper-20/live_dashboard_v5.py
       - name: Local paper-accounting smoke test
         run: |
           python3 sol-arb-paper-20/multicoin_v4.py --self-test
           python3 sol-arb-paper-20/multicoin_v4_1.py --self-test
+          python3 sol-arb-paper-20/multicoin_v5_aud1000.py --self-test
