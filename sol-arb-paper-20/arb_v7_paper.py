@@ -291,8 +291,10 @@ def entry_estimate(state,venues,long_v,short_v,coin,books):
     cash_a=state["wallets"][long_v]
     cash_b=state["wallets"][short_v]
     # One position per venue with <=20% of its free paper balance.
-    cap_a=min(cash_a*COLLATERAL_CAP,INITIAL_USDT*COLLATERAL_CAP)
-    cap_b=min(cash_b*COLLATERAL_CAP,INITIAL_USDT*COLLATERAL_CAP)
+    # Always 20% of the CURRENT free wallet balance: losses shrink sizing;
+    # realized gains gradually increase sizing. No fixed $200 ceiling.
+    cap_a=max(0.0,cash_a)*COLLATERAL_CAP
+    cap_b=max(0.0,cash_b)*COLLATERAL_CAP
     size_a=cap_a*LEVERAGE/(left["asks"][0][0]*(1+FEE*LEVERAGE+EXTRA_SLIP))
     size_b=cap_b*LEVERAGE/(right["bids"][0][0]*(1+FEE*LEVERAGE+EXTRA_SLIP))
     depth_a=sum(q for _,q in left["asks"])*0.30
