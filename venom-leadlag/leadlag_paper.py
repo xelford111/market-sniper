@@ -153,6 +153,68 @@ def compute_signal(history,quotes,symbol,now,lookback_s=1.5):
 def expected_bps(sig):
     return abs(sig["lag_gap_bps"])*CATCHUP_ASSUMPTION - 2*(TAKER_FEE+SLIP)*10000 - FUNDING_RESERVE*10000
 
+
+def near_miss_observation(history,quotes,symbol,now,lookback_s=1.5):
+    """Explain entry-rule failures on synchronized, fresh public price RETURNS.
+
+    Pure observation: no account changes or automatic parameter adjustments.
+    A near miss here does NOT imply an actually profitable trade.
+    """
+    q={v:quotes.get((v,symbol)) for v in ("binance","okx","bybit")}
+    if any(v is None for v in q.values()):return None
+    if any(now-v["seen_mono"]<0 or (now-v["seen_mono"])*1000>MAX_QUOTE_AGE_MS
+           for v in q.values()):return None
+    skew=max(x["source_ms"] for x in q.values())-min(x["source_ms"] for x in q.values())
+    if skew>MAX_SOURCE_SKEW_MS:return None
+    returns={}
+    for v in q:
+        prior=historical_value(history.get((v,symbol),()),lookback_s,now)
+        if prior is None:return None
+        returns[v]=10000*(q[v]["mid"]/prior-1)
+    b,o,y=returns["binance"],returns["okx"],returns["bybit"]
+    leader=(b+o)/2
+    lag=leader-y
+    expected=abs(lag)*CATCHUP_ASSUMPTION-2*(TAKER_FEE+SLIP)*10000-FUNDING_RESERVE*10000
+    agreement=b*o>0
+    quiet=min(abs(b),abs(o))<STUDY_RET_THRESHOLD_BPS
+    # A modest threshold excludes random sub-basis-point quote flicker.
+    if abs(leader)<2.0 and abs(lag)<2.0:return None
+    reason=None
+    if not agreement:
+        reason="LEADERS_DISAGREE"
+    elif quiet:
+        reason="LEADER_FEED_MOVE_BELOW_5BPS"
+    elif abs(leader)<LIVE_SIGNAL_MIN_MOVE_BPS:
+        reason="LEADER_BELOW_12BPS"
+    elif abs(lag)<LEADER_LAG_GAP_BPS:
+        reason="LAG_BELOW_15BPS"
+    elif abs(y)>abs(leader)*0.6:
+        reason="BYBIT_ALREADY_FOLLOWED"
+    elif expected<MIN_EXPECTED_NET_BPS:
+        reason="ESTIMATED_NET_BELOW_3BPS"
+    else:
+        reason="SIGNAL_THRESHOLDS_PASS" # Could still fail liquidity/cooldown.
+    hurdle=(MIN_EXPECTED_NET_BPS+2*(TAKER_FEE+SLIP)*10000+
+            FUNDING_RESERVE*10000)/CATCHUP_ASSUMPTION
+    # Rank by absolute lag relative to the *actual modeled* profitability hurdle.
+    # Reasons retain the first failing prerequisite (not just the gap).
+    return {
+        "timestamp":clock(),"symbol":symbol,
+        "direction":"LONG" if lag>0 else "SHORT",
+        "binance_move_bps":round(b,3),"okx_move_bps":round(o,3),
+        "bybit_move_bps":round(y,3),
+        "leader_move_bps":round(leader,3),
+        "lag_gap_bps":round(lag,3),
+        "lag_gap_pct":round(lag/100,5),
+        "modeled_net_bps":round(expected,3),
+        "estimated_gap_to_net_hurdle_bps":round(max(0,hurdle-abs(lag)),3),
+        "minimum_net_hurdle_lag_bps":round(hurdle,3),
+        "reason":reason,
+        "reference_agreement":agreement,
+        "source_skew_ms":round(skew,1),
+        "note":"Signal proximity only, not a validated trade or predicted return."
+    }
+
 def costed_exit(position,bybit_quote):
     side=position["direction"]
     qty=position["qty"]
@@ -178,6 +240,8 @@ class Engine:
                          for v in ("binance","okx","bybit")}
         self.events=collections.deque(maxlen=30)
         self.signals=collections.deque(maxlen=20)
+        self.near_misses=collections.deque(maxlen=120)
+        self.last_near_miss={}
         self.raw_candidates=0
         self.entered=0
         self.completed=0
@@ -212,6 +276,7 @@ class Engine:
         self.events=collections.deque(d.get("events",[]),maxlen=30)
         self.studies=collections.deque(d.get("studies",[]),maxlen=300)
         self.signals=collections.deque(d.get("signals",[]),maxlen=20)
+        self.near_misses=collections.deque(d.get("near_misses",[]),maxlen=120)
     def _persist(self):
         data={"version":VERSION,"initial_usdt":self.start,
               "available":self.available,"realized":self.realized,
@@ -219,7 +284,8 @@ class Engine:
               "position":self.position,"entry_pause":self.entry_pause,
               "entered":self.entered,"raw_candidates":self.raw_candidates,
               "events":list(self.events),"studies":list(self.studies)[-150:],
-              "signals":list(self.signals)}
+              "signals":list(self.signals),
+              "near_misses":list(self.near_misses)[-120:]}
         tmp=self.state_file.with_suffix(".tmp")
         with tmp.open("w") as f:
             json.dump(data,f);f.flush();os.fsync(f.fileno())
@@ -318,6 +384,17 @@ class Engine:
             venue="Bybit",pnl_usdt=round(pnl,4),reason=reason,
             price=round(res["exit_price"],8),notional_usdt=round(p["notional"],2))
         if self.realized<=-MAX_SESSION_LOSS:self.entry_pause="MAX_REALIZED_LOSS"
+
+    def _record_near_miss(self,symbol,now):
+        """At most one sample per symbol every five seconds, bounded history."""
+        if now-self.last_near_miss.get(symbol,0)<5.0:return
+        row=near_miss_observation(self.hist,self.quotes,symbol,now)
+        if row is None:return
+        self.last_near_miss[symbol]=now
+        # Actual qualification is unchanged. Near misses are evidence only.
+        if row["reason"]=="SIGNAL_THRESHOLDS_PASS":return
+        self.near_misses.append(row)
+
     def _study(self,sig,q):
         now=time.monotonic()
         sym=sig["symbol"]
@@ -373,6 +450,9 @@ class Engine:
                 if q:
                     self.hist[(v,symbol)].append((now,q["mid"]))
         self._resolve_studies(now)
+        # Read-only diagnostics run even while a simulated trade is active.
+        for c in COINS:
+            self._record_near_miss(c+"USDT",now)
         if self.position:
             p=self.position
             q=self._good_q("bybit",p["symbol"],now)
@@ -449,6 +529,13 @@ class Engine:
             "signals":list(self.signals)[-10:],
             "research":self.research_stats(),
             "recent_studies":list(self.studies)[-10:],
+            "near_misses":sorted(
+                [x for x in self.near_misses if time.time()-dt.datetime.fromisoformat(x["timestamp"]).timestamp()<3600],
+                key=lambda x: (
+                    x["reason"] not in ("LEADERS_DISAGREE","LEADER_FEED_MOVE_BELOW_5BPS"),
+                    -x["estimated_gap_to_net_hurdle_bps"],
+                    abs(x["lag_gap_bps"])),reverse=True)[:12],
+            "near_miss_total_logged":len(self.near_misses),
             "events":list(self.events)[-20:],
             "entry_pause":self.entry_pause,
             "limitations":[
