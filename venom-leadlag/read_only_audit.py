@@ -61,6 +61,19 @@ print("Total unique OPEN/CLOSE events visible:",len(uniq))
 for e in sorted(uniq.values(),key=lambda x:x.get("timestamp",""))[-8:]:
     print("EVENT:", json.dumps({k:e.get(k) for k in ("timestamp","type","symbol","direction","pnl_usdt","reason")}))
 print("Recent 2s/5s/10s research:",last.get("recent_studies",[])[-6:])
+print("\\n========== NEAR MISSES RECORDED BY LIVE ENGINE ==========")
+if "near_misses" not in last:
+    print("NEAR_MISS_LOGGING_NOT_INSTALLED: backend does not report near_misses key")
+else:
+    near=last.get("near_misses") or []
+    print("Near misses in last engine reporting window:",len(near))
+    print("Near-miss total logged (bounded):",last.get("near_miss_total_logged"))
+    for m in near[:12]:
+        print("NEAR_MISS:", json.dumps({key:m.get(key) for key in (
+          "timestamp","symbol","direction","leader_move_bps","bybit_move_bps",
+          "lag_gap_bps","estimated_gap_to_net_hurdle_bps","modeled_net_bps","reason")},sort_keys=True))
+    if not near:print("No near misses reported in this snapshot window.")
+
 
 print("\n========== HOW CLOSE TO OPENING? ==========")
 print("Current entry filters: reference leader >=12 bps, lag >=15 bps, expected net >=3 bps,")
@@ -81,7 +94,6 @@ for s in sorted_signals[:10]:
           f"followerMin={'YES' if bybit<leader*.6 else 'NO'}")
 if not sorted_signals:
     print("No recent direction-agreeing candidate signals visible in public snapshot history.")
-    print("The API does not expose continuous near-miss diagnostics; we cannot establish")
-    print("how close unlogged price movements were to firing from this public report.")
+    print("Historical signal history cannot establish all rejected setups; see near_misses if present.")
 if errors:
     print("Sample fetch errors:",errors[:3])
